@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from typing import List, Tuple, Annotated, Optional
 from langchain_core.tools import tool
 from src.utils.logger import MainLogger
-from docling.document_converter import DocumentConverter
+from src.agent.tools.tools_helper import extract_tables_from_pdf
 import matplotlib.pyplot as plt
 import plotly.express as px
 
@@ -56,9 +56,15 @@ def store_data_dict():
     """
     logger.info("Starting to read the data dictionary")
     url = "https://opendatasus.saude.gov.br/dataset/39a4995f-4a6e-440f-8c8f-b00c81fae0d0/resource/3135ac9c-2019-4989-a893-2ed50ebd8e68/download/dicionario-de-dados-2019-a-2025.pdf"
-    document = DocumentConverter().convert(url).document
+    logger.info("Extracting the structure from pdf")
+
+    structs = extract_tables_from_pdf(url)
+    
     logger.info("Successfully read the data dictionary")
-    return document
+    return structs
+
+@tool
+def summarize_data(csv:pd.DataFrame):
 
 @tool
 def plot_data(csv:pd.DataFrame):
