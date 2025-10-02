@@ -1,6 +1,6 @@
 from docling.document_converter import DocumentConverter
 
-def extract_tables_from_pdf(url: str):
+def extract_data_dictionary(url: str):
     tables = DocumentConverter().convert(url).document.export_to_dict().get('tables', [])
 
     colunas, caracteristicas, tipos = [], [], []
