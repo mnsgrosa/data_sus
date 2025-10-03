@@ -1,24 +1,24 @@
 import httpx
 import pandas as pd
 from bs4 import BeautifulSoup
-from typing import List, Tuple, Annotated, Optional
+from typing import List, Tuple, Annotated, Optional, Dict, Any
 from langchain_core.tools import tool
 from src.utils.logger import MainLogger
-from src.agent.tools.tools_helper import extract_data_dictionary
+from src.agentic.agent_tools.tools_helper import extract_data_dictionary
 import matplotlib.pyplot as plt
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset"
 
 @tool
-def read_csv(year: int) -> pd.DataFrame:
+def read_csv(year: int) -> Dict[str, Any]:
     """
     Reads the 'srag' data about acute respiratory diseases including covid-19 and returns it
 
     ARGS:
         year: int: Year of the data to be downloaded. Valid values are 2019, 2020, 2021, 2022, 2023, 2024, 2025
     RETURNS:
-        A pandas DataFrame containing the data from the CSV file.
+        pandas dataframe as dict.
     """
     logger.info("Starting the csv reader tool")
 
@@ -43,10 +43,10 @@ def read_csv(year: int) -> pd.DataFrame:
 
     df = pd.read_csv(s3_link)
     logger.info(f"Successfully read CSV data from {s3_link}")
-    return df
+    return df.to_dict()
 
 @tool
-def store_data_dict():
+def get_data_dict() -> Dict[str, Any]:
     """
     Reads the data dictionary for the 'srag' dataset.
 
@@ -63,7 +63,7 @@ def store_data_dict():
     return structs
 
 @tool
-def summarize_numerical_data(csv:pd.DataFrame, column: str, mean: Optional[bool] = True, median: Optional[bool] = True, std: Optional[bool] = True, min: Optional[bool] = True, max: Optional[bool] = True):
+def summarize_numerical_data(csv:pd.DataFrame, column: str, mean: Optional[bool] = True, median: Optional[bool] = True, std: Optional[bool] = True, min: Optional[bool] = True, max: Optional[bool] = True) -> Dict[str, Any]:
     """
     Summarizes the numerical data in the specified column of the DataFrame.
 
@@ -105,7 +105,7 @@ def summarize_numerical_data(csv:pd.DataFrame, column: str, mean: Optional[bool]
     return returnable_data
 
 @tool
-def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str = 'D'):
+def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str = 'D') -> Dict[str, Any]:
     """
     Generates a statistical report about the following topics:
     - Number of deaths and death rate
@@ -167,7 +167,7 @@ def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_an
     return report
 
 @tool
-def generate_temporal_graphical_report(csv:pd.DataFrame, column: str, state: Optional[str], granularity: str):
+def generate_temporal_graphical_report(csv:pd.DataFrame, column: str, state: Optional[str], granularity: str) -> Dict[str, Any]:
     """
     Generates a graphical report for the specified column of the DataFrame.
 
@@ -199,4 +199,4 @@ def generate_temporal_graphical_report(csv:pd.DataFrame, column: str, state: Opt
         grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count()
 
     fig = px.line(grouped, x = 'DT_NOTIFIC', y = column, title = f'Temporal Graphical Report of {column}')
-    return fig
+    return {"plot": fig}
