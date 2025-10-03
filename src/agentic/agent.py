@@ -1,6 +1,6 @@
 import typing
 from src.agentic.agent_tools.tools import (
-    read_csv, 
+    store_csvs, 
     get_data_dict, 
     summarize_numerical_data,
     generate_statistical_report,
@@ -22,10 +22,11 @@ class ReportInfo(TypedDict):
 
 class StatisticalAgent(MainLogger):
     def __init__(self):
-        self.tools = [read_csv, get_data_dict, summarize_numerical_data, generate_statistical_report, generate_temporal_graphical_report]
+        super().__init__(__name__)
+        self.tools = [store_csvs, get_data_dict, summarize_numerical_data, generate_statistical_report, generate_temporal_graphical_report]
         self.llm_tool_caller = ChatOllama(model = "deepseek-r1:1.5b")
         self.llm_tool_caller.bind_tools(self.tools)
-        self.graph = StateGraph()
+        self.graph = StateGraph(ReportInfo)
         self._init_graph()
         self.history = []
         self.data = {}

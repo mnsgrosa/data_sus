@@ -6,6 +6,7 @@ from src.utils.logger import MainLogger
 
 class SragDb(MainLogger):
     def __init__(self):
+        super().__init__(__name__)
         self.db_name = "data_sus"
         self.schema_name = "srag"
         self.conn = sqlite3.connect("data_sus.db")
@@ -22,16 +23,16 @@ class SragDb(MainLogger):
             cursor = self.conn.cursor()
             yield cursor
             self.info("Commiting changes")
-            self.connection.commit()
+            self.conn.commit()
         except Exception as e:
             self.error("Error while using the cursor")
-            if self.conn:
-                self.conn.close()
-            raise e
-        finally:
-            self.info("Closing the cursor")
             if cursor:
                 cursor.close()
+            raise e
+        finally:
+            self.info("Closing the connection")
+            if self.conn:
+                self.conn.close()
 
     def _check_schema(self):
         with self.get_cursor() as cursor:

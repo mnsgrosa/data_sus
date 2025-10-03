@@ -16,3 +16,9 @@ class MainLogger:
         stream_handler.setFormatter(formatter)
         if not self.logger.handlers:
             self.logger.addHandler(stream_handler)
+
+    def info(self, message: str):
+        self.logger.info(message)
+
+    def error(self, message: str):
+        self.logger.error(message)

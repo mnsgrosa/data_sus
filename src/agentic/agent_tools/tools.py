@@ -5,18 +5,20 @@ from typing import List, Tuple, Annotated, Optional, Dict, Any
 from langchain_core.tools import tool
 from src.utils.logger import MainLogger
 from src.agentic.agent_tools.tools_helper import extract_data_dictionary
+from src.db.data_storage import SragDb
 import matplotlib.pyplot as plt
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset"
+db = SragDb()
 
 @tool
-def read_csv(year: int) -> Dict[str, Any]:
+def store_csvs() -> Dict[str, Any]:
     """
-    Reads the 'srag' data about acute respiratory diseases including covid-19 and returns it
+    Get the 'srag' data about acute respiratory diseases including covid-19 and stores the data into de sqlite database.
 
     ARGS:
-        year: int: Year of the data to be downloaded. Valid values are 2019, 2020, 2021, 2022, 2023, 2024, 2025
+        No args.
     RETURNS:
         pandas dataframe as dict.
     """
@@ -33,17 +35,22 @@ def read_csv(year: int) -> Dict[str, Any]:
 
     s3_link = None
 
-    for link in links:
+    for link, year in zip(links, [2019, 2020, 2021, 2022, 2023, 2024, 2025]):
         if 's3' in link.get('href', '') and str(year) in link.get('href', ''):
             s3_link = link.get('href')
-            break
+            df = pd.read_csv(s3_link, sep = ';', low_memory = False)
+            df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL']]
+            df['year'] = [year] * len(df)
+            logger.info(f"Data {df}")
+            insertion_result = db.insert(df.to_dict(orient = 'records'))
+            logger.info(f"Data for year {year} fetched and processed")
+            if not insertion_result:
+                logger.error("Failed to insert data into the database")
+                raise Exception("Failed to insert data into the database")
+                return {status: "error", message: "Failed to insert data into the database"}
 
-    if not s3_link:
-        raise ValueError(f"No S3 link found for the year {year}")
-
-    df = pd.read_csv(s3_link)
     logger.info(f"Successfully read CSV data from {s3_link}")
-    return df.to_dict()
+    return {status: "success", message: "Data inserted successfully"}
 
 @tool
 def get_data_dict() -> Dict[str, Any]:
@@ -63,7 +70,7 @@ def get_data_dict() -> Dict[str, Any]:
     return structs
 
 @tool
-def summarize_numerical_data(csv:pd.DataFrame, column: str, mean: Optional[bool] = True, median: Optional[bool] = True, std: Optional[bool] = True, min: Optional[bool] = True, max: Optional[bool] = True) -> Dict[str, Any]:
+def summarize_numerical_data(year:str, column: str, mean: Optional[bool] = True, median: Optional[bool] = True, std: Optional[bool] = True, min: Optional[bool] = True, max: Optional[bool] = True) -> Dict[str, Any]:
     """
     Summarizes the numerical data in the specified column of the DataFrame.
 
@@ -81,31 +88,41 @@ def summarize_numerical_data(csv:pd.DataFrame, column: str, mean: Optional[bool]
 
     returnable_data = {}
 
+    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
+        logger.error("Invalid year provided")
+        raise ValueError("Invalid year provided")
+
+    data = db.get_data(year)
+    if data is None:
+        logger.error("No data found for the specified year")
+        raise ValueError("No data found for the specified year")
+        return {}
+
     if mean:
-        mean_value = csv[column].mean()
+        mean_value = data[column].mean()
         returnable_data['mean'] = mean_value
         logger.info(f"Mean of {column}: {mean_value}")
     if median:
-        median_value = csv[column].median()
+        median_value = data[column].median()
         returnable_data['median'] = median_value
         logger.info(f"Median of {column}: {median_value}")
     if std:
-        std_value = csv[column].std()
+        std_value = data[column].std()
         returnable_data['std'] = std_value
         logger.info(f"Standard Deviation of {column}: {std_value}")
     if min:
-        min_value = csv[column].min()
+        min_value = data[column].min()
         returnable_data['min'] = min_value
         logger.info(f"Minimum of {column}: {min_value}")
     if max:
-        max_value = csv[column].max()
+        max_value = data[column].max()
         returnable_data['max'] = max_value
         logger.info(f"Maximum of {column}: {max_value}")
 
     return returnable_data
 
 @tool
-def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str = 'D') -> Dict[str, Any]:
+def generate_statistical_report(year: str, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str = 'D') -> Dict[str, Any]:
     """
     Generates a statistical report about the following topics:
     - Number of deaths and death rate
@@ -123,16 +140,21 @@ def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_an
     RETURNS:
         A summary of the data in the specified column.
     """
-    if csv is None:
-        logger.error("DataFrame is None")
-        raise ValueError("DataFrame cannot be None")
+    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
+        logger.error("Invalid year provided")
+        raise ValueError("Invalid year provided")
 
     if granularity not in ['D', 'W', 'ME', 'Q', 'A']:
         logger.error(f"Invalid granularity provided: {granularity}")
         raise ValueError("Granularity must be one of the following: 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual)")
 
-    data = csv.copy()
     report = {}
+
+    data = db.get_data(year)
+    if data is None:
+        logger.error("No data found for the specified year")
+        raise ValueError("No data found for the specified year")
+        return report
 
     if state:
         data = data[data['SG_UF_NOT'] == state]
@@ -167,7 +189,7 @@ def generate_statistical_report(csv:pd.DataFrame, state: Optional[str], start_an
     return report
 
 @tool
-def generate_temporal_graphical_report(csv:pd.DataFrame, column: str, state: Optional[str], granularity: str) -> Dict[str, Any]:
+def generate_temporal_graphical_report(column: str, state: Optional[str], granularity: str, year: Optional[str]) -> Dict[str, Any]:
     """
     Generates a graphical report for the specified column of the DataFrame.
 
@@ -178,19 +200,21 @@ def generate_temporal_graphical_report(csv:pd.DataFrame, column: str, state: Opt
     RETURNS:
         A plot of the data.
     """
-    if csv is None:
-        logger.error("DataFrame is None")
-        raise ValueError("DataFrame cannot be None")
+    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
+        logger.error("Invalid year provided")
+        raise ValueError("Invalid year provided")
+        return {"plot": None}
 
     if granularity not in ['D', 'W', 'ME', 'Q', 'A']:
         logger.error(f"Invalid granularity provided: {granularity}")
         raise ValueError("Granularity must be one of the following: 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual)")
+        return {"plot": None}
 
-    if column not in csv.columns:
-        logger.error(f"Column {column} not found in DataFrame")
-        raise ValueError(f"Column {column} not found in DataFrame")
-
-    data = csv.copy()
+    data = db.get_data(year)
+    if data is None:
+        logger.error("No data found for the specified year")
+        raise ValueError("No data found for the specified year")
+        return {}
 
     grouped = data.groupby(by = ['DT_NOTIFIC', 'SG_UF_NOT']).count().reset_index()
     if state:
