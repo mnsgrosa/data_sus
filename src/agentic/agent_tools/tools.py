@@ -58,7 +58,7 @@ def get_data_dict() -> Dict[str, Any]:
     Reads the data dictionary for the 'srag' dataset.
 
     RETURNS:
-        A pandas DataFrame containing the data dictionary.
+        A dictionary representing the data info.
     """
     logger.info("Starting to read the data dictionary")
     url = "https://opendatasus.saude.gov.br/dataset/39a4995f-4a6e-440f-8c8f-b00c81fae0d0/resource/3135ac9c-2019-4989-a893-2ed50ebd8e68/download/dicionario-de-dados-2019-a-2025.pdf"
@@ -75,17 +75,18 @@ def summarize_numerical_data(year:str, column: str, mean: Optional[bool] = True,
     Summarizes the numerical data in the specified column of the DataFrame.
 
     ARGS:
-        csv: pd.DataFrame: DataFrame containing the data to be summarized.
+        year: str: The year of the data to summarize. Can be a specific year or "all".
         column: str: The column to summarize.
+        mean: Optional[bool]: Whether to include the mean in the summary. Default is True.
+        median: Optional[bool]: Whether to include the median in the summary. Default is True.
+        std: Optional[bool]: Whether to include the standard deviation in the summary. Default is True.
+        min: Optional[bool]: Whether to include the minimum value in the summary. Default is True.
+        max: Optional[bool]: Whether to include the maximum value in the summary. Default is True.
 
     RETURNS:
-        A summary of the data in the specified column.
+        Dict[str, Any]: A summary of the data in the specified column.
     """
     logger.info(f"Starting to summarize data for column: {column}")
-    if column not in csv.columns:
-        logger.error(f"Column {column} not found in DataFrame")
-        raise ValueError(f"Column {column} not found in DataFrame")
-
     returnable_data = {}
 
     if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
@@ -122,7 +123,7 @@ def summarize_numerical_data(year:str, column: str, mean: Optional[bool] = True,
     return returnable_data
 
 @tool
-def generate_statistical_report(year: str, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str = 'D') -> Dict[str, Any]:
+def generate_statistical_report(year: str, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: Optional[str] = 'D') -> Dict[str, Any]:
     """
     Generates a statistical report about the following topics:
     - Number of deaths and death rate
@@ -186,7 +187,7 @@ def generate_statistical_report(year: str, state: Optional[str], start_analisys_
     vaccinated = (vaccinated.shape[0] / total_count) * 100 if total_count > 0 else 0
     report['perc_vaccinated'] = vaccinated
 
-    return report
+    return {'report': report.to_dict('records')}
 
 @tool
 def generate_temporal_graphical_report(column: str, state: Optional[str], granularity: str, year: Optional[str]) -> Dict[str, Any]:
@@ -223,4 +224,12 @@ def generate_temporal_graphical_report(column: str, state: Optional[str], granul
         grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count()
 
     fig = px.line(grouped, x = 'DT_NOTIFIC', y = column, title = f'Temporal Graphical Report of {column}')
-    return {"plot": fig}
+
+    fig_id = f"fig_{hash((column, state, granularity, year))}"
+    FIGURE_STORE[fig_id] = fig
+
+    return {
+        "figure_id": fig_id,
+        "description": f"Generated line plot for {column} with {granularity} granularity",
+        "data_points": len(grouped)
+    }
