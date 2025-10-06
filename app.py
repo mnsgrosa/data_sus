@@ -1,5 +1,6 @@
 import streamlit as st
 from src.agentic.agent import StatisticalAgent
+import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 import plotly.graph_objects as go
@@ -77,28 +78,8 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                             px.line(x = item.get('x'), y = item.get('y')).write_image('./line_chart.png')
                             st.image('./line_chart.png')
                         elif message.name == 'generate_statistical_report':
-                            ans = {
-                                'death_count': [],
-                                'death_rate': [],
-                                'new_cases': [],
-                                'cases_uti': [],
-                                'cases_hospitalized': [],
-                                'perc_uti': [],
-                                'perc_vaccinated': []
-                            }
-
                             items = json.loads(message.content)
-                            st.write(items)
-                            for item in items:
-                                ans['death_count'].append(item[0])
-                                ans['death_rate'].append(item[1])
-                                ans['new_cases'].append(item[2])
-                                ans['cases_uti'].append(item[3])
-                                ans['cases_hospitalized'].append(item[4])
-                                ans['perc_uti'].append(item[5])
-                                ans['perc_vaccinated'].append(item[6])
-                            
-                            st.write(ans)
+                            st.table(pd.DataFrame(items).round(2))
 
                     
                 # if result.get("summary"):
