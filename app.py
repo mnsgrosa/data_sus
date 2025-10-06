@@ -6,6 +6,7 @@ import plotly.io as pio
 import plotly.graph_objects as go
 import json
 import glob
+import numpy as np
 
 @st.cache_resource
 def get_agent():
@@ -89,17 +90,26 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                         last_message = msg.content
                         break
 
-                response_text = last_message or "Task completed."
+                item_msg = False
+                table_msg = False
+                dict_msg = False
+                store_msg = False
 
+                response_text = last_message or "Task completed."
                 for message in result['messages']:
                     if message.type == 'tool':
                         if message.name == 'generate_temporal_graphical_report':
                             item = json.loads(message.content)
-                            px.line(x = item.get('x'), y = item.get('y')).write_image('./line_chart.png')
-                            st.image('./line_chart.png')
+                            data = pd.DataFrame({
+                                'x' : item.get('x'),
+                                'y' : item.get('y')
+                            })
+                            chart = st.line_chart(data, x = 'x', y = 'y')
+                            item_msg = True
                         elif message.name == 'generate_statistical_report':
                             items = json.loads(message.content)
-                            st.table(pd.DataFrame(items).round(2))
+                            table_msg = True
+                            table = st.table(pd.DataFrame(items))
                         elif message.name == 'summarize_numerical_data':
                             items = json.loads(message.content)
                             st.json(items)
@@ -113,28 +123,27 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                                         value_dict[f'freq_{freq}'] = items[year][column]['freq'][freq]
                                     column_dict[column] = value_dict
                                 st.session_state.summaries[year] = column_dict
-
-                            # for item in items.keys():
-                            #     pass
+                        elif message.name == 'get_data_dict':
+                            items = json.loads(message.content)
+                            dict_msg = True
+                            dict_ct = st.table(pd.DataFrame(items))
+                        elif message.name == 'store_csvs':
+                            store_msg = True
+                
+                    if message.type == 'ai':
+                        if item_msg:
+                            st.write(f"{message.content}")
+                            item_msg = False
+                        elif table_msg:
+                            st.write(f"{message.content} + {table}")
+                            table_msg = False
+                        elif dict_msg:
+                            st.write(f"{message,content} + {dict_ct}")
+                            dict_msg = False
+                        elif store_msg:
+                            st.write(f"{message.content}")
+                            store_msg = False
                         
-
-                    
-                # if result.get("summary"):
-                #     with st.expander("📊 Summary Statistics"):
-                #         for summary in result["summary"]:
-                #             st.json(summary)
-                
-                # if result.get("report"):
-                #     with st.expander("📄 Statistical Reports"):
-                #         if fig:
-                #             st.line_chart(x = x, y = y)
-                
-                # st.session_state.chat_history.append({
-                #     "role": "assistant",
-                #     "content": response_text,
-                #     "new_figures": fig,
-                #     "timestamp": len(st.session_state.chat_history)
-                # })
             
             except Exception as e:
                 st.error(f"Error: {str(e)}")
