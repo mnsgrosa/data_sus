@@ -12,6 +12,7 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import re
 import datetime
+import httpx
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024"
@@ -20,72 +21,27 @@ def get_db():
     return SragDb()
 
 @tool
-def store_csvs(year: str) -> Dict[str, Any]:
+def store_csvs(years: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     Get the 'srag' dataset from the datasus website about acute respiratory diseases including covid-19 
     and stores the data into de sqlite database.
     
     Whenever the user asks to get data, fetch data, store data it refers to this function
     ARGS:
-        year: str: Year chosen by the user. the options are [2021', '2022', '2023', '2024', '2025']
+        years: Optional[List[int]]: Year chosen by the user. the options are [2021, 2022, 2023, 2024, 2025]
+        defaults to None, if None it will fetch all the years available
     RETURNS:
         pandas dataframe as dict.
     """
-    
     logger.info("Starting the csv reader tool")
     with httpx.Client() as client:
-        response = client.get(BASE_URL, timeout = 300000)
-    logger.info(f"Fetched data from {BASE_URL} with status code {response.status_code}")
-    soup = BeautifulSoup(response.text, 'html.parser')
-    dropdown = soup.find_all('a', class_ = 'dropdown-item')
-    items = [item['href'] for item in dropdown]
-
-    s3_link = None
-    db = SragDb()
-
-    if year == 'all':
-        try:
-            for link in items:
-                if 's3' in link:
-                    s3_link = link
-                    option = re.findall(r'\d{4}', link)[0]
-                    df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]
-                    df['year'] = [int(option)] * len(df)
-                    logger.info(f"Data {df}")
-                    insertion_result = db.insert(df.to_dict(orient = 'records'))
-                    logger.info(f"Data for year {option} fetched and processed")
-                    if not insertion_result:
-                        logger.error(f"Failed to insert data into the database for year {option}")
-                        raise Exception(f"Failed to insert data into the database for year {option}")
-
-            logger.info(f"Successfully read CSV data from {s3_link}")
-            return {"status": "success", "message": "Data inserted successfully"}
-        except Exception as e:
-            logger.error(f"Error while fetching or processing data: {e}")
-            raise
-    
-    try:
-        for link in items:
-            if 's3' in link:
-                s3_link = link
-                option = re.findall(r'\d{4}', link)[0]
-                if year == option:
-                    df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'SEM_NOT', 'HOSPITAL', 'EVOLUCAO']] 
-                    df['year'] = [int(year)] * len(df)
-                    logger.info(f"Data {df}")
-                    insertion_result = db.insert(df.to_dict(orient = 'records'))
-                    logger.info(f"Data for year {year} fetched and processed")
-                    if not insertion_result:
-                        logger.error(f"Failed to insert data into the database for year {year}")
-                        raise Exception(f"Failed to insert data into the database for year {year}")
-
-                    logger.info(f"Successfully read CSV data from {s3_link} and {year}")
-                    return {"status": "success", "message": "Data inserted successfully"}
-    except Exception as e:
-        logger.error(f"Error while fetching or processing data: {e} and {year}")
-        raise
+        response = client.post('http://localhost:8000/fetch', json = {"years": years or []}, timeout=30000.0)
+        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Failed to fetch data: {response.text}")
+            return {"status": "error", "message": "Failed to fetch data"}
+        logger.info("Successfully fetched and stored the data")
+    return response.json()
         
 @tool
 def get_data_dict() -> Dict[str, Any]:
@@ -117,32 +73,15 @@ def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, 
         Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
     """
     logger.info(f"Starting to summarize data from: {columns}")
-    returnable_data = {}
-
-
-    db = SragDb()
-    columns = [column.upper() for column in columns]
-
-    try:
-        for year in years:
-            logger.info(f'Year: {year}')
-            if year not in [2019, 2020, 2021, 2022, 2023, 2024, 2025]:
-                logger.error('Year is not part of the dataset')
-            data = db.get_data(year)
-            data.fillna(-1, inplace = True)
-            columns_dict = {}
-            for column in columns:
-                year_dict = {} 
-                response = pd.Categorical(data[column], ordered = True)
-                year_dict['median'] = np.median(response.codes)
-                year_dict['freq'] = data[column].value_counts()
-                columns_dict[column] = year_dict
-            returnable_data[year] = columns_dict 
-        return returnable_data
-    except Exception as e:
-        logger.error(f'Error summarizing: {e}')
-        raise e
-        return returnable_dict
+    with httpx.Client() as client:
+        response = client.get('http://localhost:8000/summary', data = {"columns": columns, "years": years}, timeout=30000.0)
+        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Failed to summarize data: {response.text}")
+            return {"status": "error", "message": "Failed to summarize data"}
+        logger.info("Successfully summarized the data")
+    ans = response.json()
+    return ans.get("summaries", {})
 
 @tool
 def generate_statistical_report(
@@ -150,7 +89,7 @@ def generate_statistical_report(
     starting_month: int,
     ending_month: int,
     state: Optional[str] = 'all',
-    granularity: str = 'D'
+    granularity: str = 'ME'
 ) -> Dict[str, Any]:
     """
     Generates a statistical report about the following topics:
@@ -170,76 +109,25 @@ def generate_statistical_report(
             RETURNS:
                 A summary of the data of total cases from that year
     """
-    if year not in [2021, 2022, 2023, 2024, 2025]:
-        logger.error("Invalid year provided")
-        raise ValueError("Invalid year provided")
-
-    if granularity not in ['D', 'W', 'ME', 'Q', 'A']:
-        logger.error(f"Invalid granularity provided: {granularity}")
-        raise ValueError("Granularity must be one of: 'D', 'W', 'ME', 'Q', 'A'")
-
-    report = {}
-    db = get_db()
-    data = db.get_data(int(year))
-
-    if data is None:
-        logger.error("No data found for the specified year")
-        raise ValueError("No data found for the specified year")
-
-    if state != 'all':
-        data = data[data['SG_UF_NOT'] == state]
+    logger.info("Starting statistical report generation")
+    with httpx.Client() as client:
+        post_data = {
+            "year": year,
+            "starting_month": starting_month,
+            "ending_month": ending_month,
+            "state": state,
+            "granularity": granularity
+        }
+        response = client.get('http://localhost:8000/report', data = post_data, timeout=30000.0)
+        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Failed to generate report: {response.text}")
+            return {"status": "error", "message": "Failed to generate report"}
+        logger.info("Successfully generated the report")
         
-    try:
-        year_int = int(year)
-
-        data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
-        mask = (data['DT_NOTIFIC'].dt.year == year_int) & \
-            (data['DT_NOTIFIC'].dt.month >= starting_month) & \
-            (data['DT_NOTIFIC'].dt.month <= ending_month)
-
-        filtered_data = data[mask]
-
-        logger.info(filtered_data)
-
-        death_count = int(filtered_data[filtered_data['EVOLUCAO'] == 2].shape[0])
-        total_count = int(filtered_data.shape[0])
-        death_rate = (death_count / total_count) * 100 if total_count > 0 else 0
-
-        report['death_count'] = int(death_count)
-        report['death_rate'] = float(death_rate)
-        report['total_cases'] = int(total_count)
-
-        logger.info(f"{death_count}, {death_rate}, {total_count}")
-        
-        casos_internados = filtered_data[filtered_data['HOSPITAL'] == 1].shape[0]
-        report['cases_hospitalized'] = int(casos_internados)
-
-        logger.info(f"{casos_internados}")
-
-        uti_count = filtered_data[filtered_data['UTI'] == 1].shape[0]
-        perc_uti = (uti_count / total_count) * 100 if total_count > 0 else 0
-        report['perc_uti'] = perc_uti
-
-        logger.info(f"{perc_uti}")
-
-        vaccinated_count = filtered_data[filtered_data['VACINA_COV'] == 1].shape[0]
-        perc_vaccinated = (vaccinated_count / total_count) * 100 if total_count > 0 else 0
-        report['perc_vaccinated'] = float(perc_vaccinated)
-
-        logger.info(f"{perc_vaccinated}")
-
-        uti_cases = filtered_data[filtered_data['UTI'] == 1].shape[0]
-        report['perc_uti'] = (uti_cases / total_count) * 100 if uti_cases > 0 else 0 
-
-        logger.info(f"{uti_cases}")
-
-        return {'report': report}
-    except Exception as e:
-        logger.error(f'Error converting data: {e}')
-        raise e
         
 @tool
-def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 'D', state: Optional[str] = None) -> Dict[str, Any]:
+def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 'ME', state: Optional[str] = None) -> Dict[str, Any]:
     """
     Generates a graphical report about the influenza cases in the selected state if not provided state defaults to None,
 
