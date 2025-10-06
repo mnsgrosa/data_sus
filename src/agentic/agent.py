@@ -102,10 +102,20 @@ class StatisticalAgent(MainLogger):
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
             
+            # Type coercion for common issues
+            if tool_name == "generate_statistical_report":
+                # Convert month integers to strings
+                if "starting_month" in tool_args:
+                    tool_args["starting_month"] = str(tool_args["starting_month"])
+                    self.logger.info(f"Coerced starting_month to string: {tool_args['starting_month']}")
+                
+                if "ending_month" in tool_args:
+                    tool_args["ending_month"] = str(tool_args["ending_month"])
+                    self.logger.info(f"Coerced ending_month to string: {tool_args['ending_month']}")
+            
             self.logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
             
             try:
-                # Execute the tool
                 tool = self.tool_map[tool_name]
                 result = tool.invoke(tool_args)
                 
@@ -176,19 +186,23 @@ class StatisticalAgent(MainLogger):
             RETURNS:
                 Dict[str, Any]: A summary of the data in the specified column.
                 
-            generate_statistical_report(year: str, state: Optional[str], start_analisys_period: str, end_analisys_period: str, granularity: str) -> Dict[str, Any]:
-            Generates a statistical report about deaths, cases, UTI, hospitalization, and vaccination.
+            Generates a statistical report about the following topics:
+            - Number of deaths and death rate
+            - Number of new cases
+            - Number of cases in UTI
+            - Number of hospitalized cases
+            - Percentage of citizens that got vaccinated
+
+            the user will ask the year and month to month analysis
 
             ARGS:
-                ARGS:
-                    year: Year that im looking into
-                    state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
-                    starting_month: str: The starting month that the user asked for.
-                    ending_month: str: The ending month that the user asked for.
-                    granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual).
-                RETURNS:
-                    A summary of the data of total cases from that year
-            
+                year: Year that im looking into
+                state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
+                starting_month: int: The starting month that the user asked for.
+                ending_month: int: The ending month that the user asked for.
+                granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual).
+            RETURNS:
+                A summary of the data of total cases from that year
                 
             generate_temporal_graphical_report(state: Optional[str], year: Optional[str], granularity: str) -> Dict[str, Any]:
             Generates a graphical report about influenza cases.

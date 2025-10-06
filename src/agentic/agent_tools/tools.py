@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 from src.utils.logger import MainLogger
 from src.agentic.agent_tools.tools_helper import extract_data_dictionary
 from src.db.data_storage import SragDb
+from pydantic import BaseModel, Field
 import plotly.express as px
 import matplotlib.pyplot as plt
 import re
@@ -48,22 +49,20 @@ def store_csvs(year: str) -> Dict[str, Any]:
                     s3_link = link
                     option = re.findall(r'\d{4}', link)[0]
                     df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL']]
+                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]
                     df['year'] = [int(option)] * len(df)
                     logger.info(f"Data {df}")
                     insertion_result = db.insert(df.to_dict(orient = 'records'))
                     logger.info(f"Data for year {option} fetched and processed")
                     if not insertion_result:
-                        logger.error(f"Failed to insert data into the database: {e}")
-                        raise Exception("Failed to insert data into the database")
-                        return {"status": "error", "message": "Failed to insert data into the database"}
+                        logger.error(f"Failed to insert data into the database for year {option}")
+                        raise Exception(f"Failed to insert data into the database for year {option}")
 
             logger.info(f"Successfully read CSV data from {s3_link}")
             return {"status": "success", "message": "Data inserted successfully"}
         except Exception as e:
             logger.error(f"Error while fetching or processing data: {e}")
-            raise e
-            return {"status": "error", "message": str(e)}
+            raise
     
     try:
         for link in items:
@@ -72,23 +71,20 @@ def store_csvs(year: str) -> Dict[str, Any]:
                 option = re.findall(r'\d{4}', link)[0]
                 if year == option:
                     df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL']]
+                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]  # Added EVOLUCAO here too
                     df['year'] = [int(year)] * len(df)
                     logger.info(f"Data {df}")
                     insertion_result = db.insert(df.to_dict(orient = 'records'))
                     logger.info(f"Data for year {year} fetched and processed")
                     if not insertion_result:
-                        logger.error("Failed to insert data into the database")
-                        raise Exception("Failed to insert data into the database")
-                        return {"status": "error", "message": "Failed to insert data into the database"}
+                        logger.error(f"Failed to insert data into the database for year {year}")
+                        raise Exception(f"Failed to insert data into the database for year {year}")
 
-                    logger.info(f"Succesfully read CSV data from {s3_link} and {year}")
+                    logger.info(f"Successfully read CSV data from {s3_link} and {year}")
                     return {"status": "success", "message": "Data inserted successfully"}
     except Exception as e:
         logger.error(f"Error while fetching or processing data: {e} and {year}")
-        raise e
-        return {"status": "error", "message": str(e)}
-    
+        raise
         
 @tool
 def get_data_dict() -> Dict[str, Any]:
@@ -108,81 +104,88 @@ def get_data_dict() -> Dict[str, Any]:
     return structs
 
 @tool
-def summarize_numerical_data(year:str, column: str, mean: Optional[bool] = True, median: Optional[bool] = True, std: Optional[bool] = True, min: Optional[bool] = True, max: Optional[bool] = True) -> Dict[str, Any]:
+def summarize_numerical_data(year: List[int], 
+    columns: List[str],
+    mean: Optional[bool] = True, 
+    median: Optional[bool] = True, 
+    std: Optional[bool] = True, min: 
+    Optional[bool] = True, 
+    max: Optional[bool] = True, 
+    granularity: Optional[str] = 'D') -> Dict[str, Any]:
     """
     Summarizes the numerical data in the specified column of the DataFrame.
 
     ARGS:
-        year: str: The year of the data to summarize. Can be a specific year or "all".
-        column: str: The column to summarize.
+        year: List[int]: List of desired years of data to summarize..
+        columns: List[str]: The columns to summarize.
         mean: Optional[bool]: Whether to include the mean in the summary. Default is True.
         median: Optional[bool]: Whether to include the median in the summary. Default is True.
         std: Optional[bool]: Whether to include the standard deviation in the summary. Default is True.
         min: Optional[bool]: Whether to include the minimum value in the summary. Default is True.
         max: Optional[bool]: Whether to include the maximum value in the summary. Default is True.
+        granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly)
 
     RETURNS:
         Dict[str, Any]: A summary of the data in the specified column.
     """
     logger.info(f"Starting to summarize data for column: {column}")
     returnable_data = {}
-
-    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
-        logger.error("Invalid year provided")
-        raise ValueError("Invalid year provided")
-
     db = get_db()
 
-    data = db.get_data(year)
-
-    if data is None:
-        logger.error("No data found for the specified year")
-        raise ValueError("No data found for the specified year")
-        return {}
-
-    if mean:
-        mean_value = data[column].mean()
-        returnable_data['mean'] = mean_value
-        logger.info(f"Mean of {column}: {mean_value}")
-    if median:
-        median_value = data[column].median()
-        returnable_data['median'] = median_value
-        logger.info(f"Median of {column}: {median_value}")
-    if std:
-        std_value = data[column].std()
-        returnable_data['std'] = std_value
-        logger.info(f"Standard Deviation of {column}: {std_value}")
-    if min:
-        min_value = data[column].min()
-        returnable_data['min'] = min_value
-        logger.info(f"Minimum of {column}: {min_value}")
-    if max:
-        max_value = data[column].max()
-        returnable_data['max'] = max_value
-        logger.info(f"Maximum of {column}: {max_value}")
+    for year in years:
+        if year not in [2019, 2020, 2021, 2022, 2023, 2024, 2025]:
+            logger.error('Year is not part of the dataset')
+        data = db.get_data(year)
+        data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
+        for column in columns:
+            if mean:
+                mean_value = data[column].mean()
+                returnable_data['mean'] = mean_value
+                logger.info(f"Mean of {column}: {mean_value}")
+            if median:
+                median_value = data[column].median()
+                returnable_data['median'] = median_value
+                logger.info(f"Median of {column}: {median_value}")
+            if std:
+                std_value = data[column].std()
+                returnable_data['std'] = std_value
+                logger.info(f"Standard Deviation of {column}: {std_value}")
+            if min:
+                min_value = data[column].min()
+                returnable_data['min'] = min_value
+                logger.info(f"Minimum of {column}: {min_value}")
+            if max:
+                max_value = data[column].max()
+                returnable_data['max'] = max_value
+                logger.info(f"Maximum of {column}: {max_value}")
 
     return returnable_data
 
 @tool
-def generate_statistical_report(year: str, state: Optional[str], starting_month: str, ending_month: str, granularity: Optional[str] = 'D') -> Dict[str, Any]:
+def generate_statistical_report(
+    year: str,
+    starting_month: int,
+    ending_month: int,
+    state: Optional[str] = 'all',
+    granularity: str = 'D'
+) -> Dict[str, Any]:
     """
     Generates a statistical report about the following topics:
-    - Number of deaths and death rate
-    - Number of new cases
-    - Number of cases in UTI
-    - Number of hospitalized cases
-    - Percentage of citizens that got vaccinated
+            - Number of deaths and death rate
+            - Number of new cases
+            - Number of cases in UTI
+            - Number of hospitalized cases
+            - Percentage of citizens that got vaccinated
 
-    the user will ask the year and month to month analysis
+            the user will ask the year and month to month analysis
 
-    ARGS:
-        year: Year that im looking into
-        state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
-        starting_month: str: The starting month that the user asked for.
-        ending_month: str: The ending month that the user asked for.
-        granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual).
-    RETURNS:
-        A summary of the data of total cases from that year
+            ARGS:
+                year: Year that im looking into
+                state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
+                starting_month: str: The starting month that the user asked for.
+                ending_month: str: The ending month that the user asked for.
+            RETURNS:
+                A summary of the data of total cases from that year
     """
     if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
         logger.error("Invalid year provided")
@@ -190,50 +193,68 @@ def generate_statistical_report(year: str, state: Optional[str], starting_month:
 
     if granularity not in ['D', 'W', 'ME', 'Q', 'A']:
         logger.error(f"Invalid granularity provided: {granularity}")
-        raise ValueError("Granularity must be one of the following: 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual)")
+        raise ValueError("Granularity must be one of: 'D', 'W', 'ME', 'Q', 'A'")
 
     report = {}
-
     db = get_db()
-
     data = db.get_data(int(year))
+
     if data is None:
         logger.error("No data found for the specified year")
         raise ValueError("No data found for the specified year")
-        return report
 
-    if state:
+    if state != 'all':
         data = data[data['SG_UF_NOT'] == state]
+        
+    try:
+        year_int = int(year)
 
-    data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
-    mask = (data['DT_NOTIFIC'] >= datetime.date(f'{year}-{starting_month}')) & (data['DT_NOTIFIC'] <= datetime.date(f'{year}-{ending_month}'))
-    filtered_data = data.loc[mask]
+        data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
+        mask = (data['DT_NOTIFIC'].dt.year == year_int) & \
+            (data['DT_NOTIFIC'].dt.month >= starting_month) & \
+            (data['DT_NOTIFIC'].dt.month <= ending_month)
 
-    death_count = filtered_data[filtered_data['EVOLUCAO'] == 2].set_index('DT_NOTIFIC').resample(granularity).count().shape[0]
-    total_count = filtered_data.shape[0]
-    death_rate = (death_count / total_count) * 100 if total_count > 0 else 0
+        filtered_data = data[mask]
 
-    report['death_count'] = death_count
-    report['death_rate'] = death_rate
+        logger.info(filtered_data)
 
-    novos_casos = filtered_data[filtered_data['SEM_NOT'] == 1].set_index('DT_NOTIFIC').resample(granularity).count()
-    report['new_cases'] = novos_casos['SEM_NOT'].to_dict()
+        death_count = int(filtered_data[filtered_data['EVOLUCAO'] == 2].shape[0])
+        total_count = int(filtered_data.shape[0])
+        death_rate = (death_count / total_count) * 100 if total_count > 0 else 0
 
-    casos_uti = filtered_data[filtered_data['UTI'] == 1].set_index('DT_NOTIFIC').resample(granularity).count()
-    report['cases_uti'] = casos_uti['UTI'].to_dict()
+        report['death_count'] = int(death_count)
+        report['death_rate'] = float(death_rate)
+        report['total_cases'] = int(total_count)
 
-    casos_internados = filtered_data[filtered_data['HOSPITAL'] == 1].set_index('DT_NOTIFIC').resample(granularity).count()
-    report['cases_hospitalized'] = casos_internados['HOSPITAL'].to
+        logger.info(f"{death_count}, {death_rate}, {total_count}")
+        
+        casos_internados = filtered_data[filtered_data['HOSPITAL'] == 1].shape[0]
+        report['cases_hospitalized'] = int(casos_internados)
 
-    perc_uti = (casos_uti.shape[0] / total_count) * 100 if total_count > 0 else 0
-    report['perc_uti'] = perc_uti
+        logger.info(f"{casos_internados}")
 
-    vaccinated = filtered_data[filtered_data['VACINA_COV'] == 1].set_index('DT_NOTIFIC').resample(granularity).count()
-    vaccinated = (vaccinated.shape[0] / total_count) * 100 if total_count > 0 else 0
-    report['perc_vaccinated'] = vaccinated
+        uti_count = filtered_data[filtered_data['UTI'] == 1].shape[0]
+        perc_uti = (uti_count / total_count) * 100 if total_count > 0 else 0
+        report['perc_uti'] = perc_uti
 
-    return {'report': report.to_dict('list')}
+        logger.info(f"{perc_uti}")
 
+        vaccinated_count = filtered_data[filtered_data['VACINA_COV'] == 1].shape[0]
+        perc_vaccinated = (vaccinated_count / total_count) * 100 if total_count > 0 else 0
+        report['perc_vaccinated'] = float(perc_vaccinated)
+
+        logger.info(f"{perc_vaccinated}")
+
+        uti_cases = filtered_data[filtered_data['UTI'] == 1].shape[0]
+        report['perc_uti'] = (uti_cases / total_count) * 100 if uti_cases > 0 else 0 
+
+        logger.info(f"{uti_cases}")
+
+        return {'report': report}
+    except Exception as e:
+        logger.error(f'Error converting data: {e}')
+        raise e
+        
 @tool
 def generate_temporal_graphical_report(state: Optional[str], year: Optional[str],  granularity: str = 'D') -> Dict[str, Any]:
     """
@@ -264,8 +285,8 @@ def generate_temporal_graphical_report(state: Optional[str], year: Optional[str]
 
     try:
         logger.info('Grouping the data')    
-        data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
         grouped = data.fillna(0).groupby(by = ['DT_NOTIFIC', 'SG_UF_NOT']).count().reset_index()
+        grouped['DT_NOTIFIC'] = pd.to_datetime(grouped['DT_NOTIFIC'])
         if state:
             grouped = grouped[grouped['SG_UF_NOT'] == state].set_index('DT_NOTIFIC').resample(granularity).count()
         else:
@@ -277,7 +298,6 @@ def generate_temporal_graphical_report(state: Optional[str], year: Optional[str]
 
     try:
         logger.info('Creating the graph')
-        grouped = grouped.reset_index()
         
         grouped['DT_NOTIFIC'] = grouped['DT_NOTIFIC'].dt.strftime('%Y-%m-%d')
         
