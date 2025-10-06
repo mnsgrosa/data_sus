@@ -1,5 +1,7 @@
 import typing
 import json
+import pandas as pd
+import numpy as np
 from src.agentic.agent_tools.tools import (
     store_csvs, 
     get_data_dict, 
@@ -7,6 +9,7 @@ from src.agentic.agent_tools.tools import (
     generate_statistical_report,
     generate_temporal_graphical_report
 )
+from datetime import datetime, date
 from typing import List, Dict, Any, Optional, TypedDict
 from langgraph.graph import StateGraph, START, END 
 from langchain_ollama import ChatOllama
@@ -63,32 +66,50 @@ class StatisticalAgent(MainLogger):
 
     def _serialize_for_json(self, obj: Any) -> Any:
         """Recursively serialize objects for JSON compatibility"""
-        import pandas as pd
-        import numpy as np
-        from datetime import datetime, date
-        
         # Handle Plotly figures specially - don't serialize them
         if hasattr(obj, '_data_class_name') or (hasattr(obj, '__module__') and 'plotly' in str(obj.__module__)):
             # Return a reference instead of the full figure
             return {"_plotly_figure": True, "_type": str(type(obj).__name__)}
         
+        if isinstance(obj, int):
+            return obj
+        
         if isinstance(obj, dict):
-            return {k: self._serialize_for_json(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
+            # Convert tuple keys to strings
+            serialized_dict = {}
+            for k, v in obj.items():
+                if isinstance(k, tuple):
+                    # Convert tuple to string representation
+                    key_str = str(k)
+                    self.logger.debug(f"Converting tuple key {k} to string: {key_str}")
+                else:
+                    key_str = k
+                serialized_dict[key_str] = self._serialize_for_json(v)
+            return serialized_dict
+        
+        elif isinstance(obj, list) or isinstance(obj, tuple):
             return [self._serialize_for_json(item) for item in obj]
+        
         elif isinstance(obj, (pd.Timestamp, datetime, date)):
             return obj.isoformat()
+        
         elif isinstance(obj, np.integer):
             return int(obj)
+        
         elif isinstance(obj, np.floating):
             return float(obj)
+        
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
+        
         elif hasattr(obj, 'to_dict') and not hasattr(obj, '_data_class_name'):
             # Handle pandas DataFrames, Series, etc. but NOT Plotly figures
-            return self._serialize_for_json(obj.to_dict())
-        else:
-            return obj
+            try:
+                dict_repr = obj.to_dict()
+                return self._serialize_for_json(dict_repr)
+            except Exception as e:
+                self.logger.warning(f"Failed to convert object to dict: {e}")
+                return str(obj)
 
     def call_tools(self, state: ReportInfo) -> Dict[str, List]:
         """Custom tool execution that preserves dict returns"""
@@ -112,6 +133,14 @@ class StatisticalAgent(MainLogger):
                 if "ending_month" in tool_args:
                     tool_args["ending_month"] = str(tool_args["ending_month"])
                     self.logger.info(f"Coerced ending_month to string: {tool_args['ending_month']}")
+
+            if tool_name == 'summarize_numerical_data':
+                if 'columns' in tool_args:
+                    tool_args['columns'] = [col for col in tool_args['columns']]
+                    self.info('Got the columns')
+                if 'years' in tool_args:
+                    tool_args['years'] = list(tool_args['years'])
+                    self.info(f"Got years")
             
             self.logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
             
@@ -167,25 +196,27 @@ class StatisticalAgent(MainLogger):
         messages = state.get("messages", [])
 
         textual_description_of_tool = """
+            The available columns for the data are: EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT 
             store_csvs(year: str) -> Dict[str, Any]: Fetches and stores the 'srag' dataset into the database.
             
-            get_data_dict() -> Dict[str, Any]: Retrieves the data dictionary for the 'srag' dataset.
-            
-            summarize_numerical_data(year: str, column: str, mean: bool, median: bool, std: bool, min: bool, max: bool) -> Dict[str, Any]:
-            Summarizes the numerical data in the specified column of the DataFrame.
+            get_data_dict() -> Dict[str, Any]: Retrieves the data dictionary for the 'srag' dataset. When the user wants to talk about anything about the columns
+            consult this dict, it will guide you throughout the questions about the columns
+            Summarizes the data in the specified column of the DataFrame.
 
             ARGS:
-                year: str: The year of the data to summarize. Can be a specific year or "all".
-                column: str: The column to summarize.
-                mean: Optional[bool]: Whether to include the mean in the summary. Default is True.
-                median: Optional[bool]: Whether to include the median in the summary. Default is True.
-                std: Optional[bool]: Whether to include the standard deviation in the summary. Default is True.
-                min: Optional[bool]: Whether to include the minimum value in the summary. Default is True.
-                max: Optional[bool]: Whether to include the maximum value in the summary. Default is True.
+                columns: List[str]: A list of columns to summarize.
+                years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
 
             RETURNS:
-                Dict[str, Any]: A summary of the data in the specified column.
+                Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
                 
+            def generate_statistical_report(
+                year: str,
+                starting_month: int,
+                ending_month: int,
+                state: Optional[str] = 'all',
+                granularity: str = 'D'
+                ) -> Dict[str, Any]:
             Generates a statistical report about the following topics:
             - Number of deaths and death rate
             - Number of new cases
@@ -198,9 +229,8 @@ class StatisticalAgent(MainLogger):
             ARGS:
                 year: Year that im looking into
                 state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
-                starting_month: int: The starting month that the user asked for.
-                ending_month: int: The ending month that the user asked for.
-                granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual).
+                starting_month: str: The starting month that the user asked for.
+                ending_month: str: The ending month that the user asked for.
             RETURNS:
                 A summary of the data of total cases from that year
                 
@@ -231,11 +261,10 @@ class StatisticalAgent(MainLogger):
         summary = state.get("summary", [])
         struct = state.get("struct", {})
 
-        for msg in reversed(messages[-10:]):  # Look at more messages
+        for msg in reversed(messages[-10:]):
             if hasattr(msg, 'type') and msg.type == 'tool':
                 result = msg.content
                 
-                # Parse the JSON string back to dict
                 if isinstance(result, str):
                     try:
                         result = json.loads(result)
@@ -310,6 +339,7 @@ class StatisticalAgent(MainLogger):
 
 
 if __name__ == "__main__":
+
     agent = StatisticalAgent()
 
     result = agent.run("Store the CSV data for year 2024")

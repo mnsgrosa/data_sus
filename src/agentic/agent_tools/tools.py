@@ -7,6 +7,7 @@ from src.utils.logger import MainLogger
 from src.agentic.agent_tools.tools_helper import extract_data_dictionary
 from src.db.data_storage import SragDb
 from pydantic import BaseModel, Field
+import numpy as np
 import plotly.express as px
 import matplotlib.pyplot as plt
 import re
@@ -104,62 +105,44 @@ def get_data_dict() -> Dict[str, Any]:
     return structs
 
 @tool
-def summarize_numerical_data(year: List[int], 
-    columns: List[str],
-    mean: Optional[bool] = True, 
-    median: Optional[bool] = True, 
-    std: Optional[bool] = True, min: 
-    Optional[bool] = True, 
-    max: Optional[bool] = True, 
-    granularity: Optional[str] = 'D') -> Dict[str, Any]:
+def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, Dict[str, Any]]:
     """
-    Summarizes the numerical data in the specified column of the DataFrame.
+    Summarizes the data in the specified column of the DataFrame.
 
     ARGS:
-        year: List[int]: List of desired years of data to summarize..
-        columns: List[str]: The columns to summarize.
-        mean: Optional[bool]: Whether to include the mean in the summary. Default is True.
-        median: Optional[bool]: Whether to include the median in the summary. Default is True.
-        std: Optional[bool]: Whether to include the standard deviation in the summary. Default is True.
-        min: Optional[bool]: Whether to include the minimum value in the summary. Default is True.
-        max: Optional[bool]: Whether to include the maximum value in the summary. Default is True.
-        granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly)
+        columns: List[str]: A list of columns to summarize.
+        years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
 
     RETURNS:
-        Dict[str, Any]: A summary of the data in the specified column.
+        Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
     """
-    logger.info(f"Starting to summarize data for column: {column}")
+    logger.info(f"Starting to summarize data from: {columns}")
     returnable_data = {}
-    db = get_db()
 
-    for year in years:
-        if year not in [2019, 2020, 2021, 2022, 2023, 2024, 2025]:
-            logger.error('Year is not part of the dataset')
-        data = db.get_data(year)
-        data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
-        for column in columns:
-            if mean:
-                mean_value = data[column].mean()
-                returnable_data['mean'] = mean_value
-                logger.info(f"Mean of {column}: {mean_value}")
-            if median:
-                median_value = data[column].median()
-                returnable_data['median'] = median_value
-                logger.info(f"Median of {column}: {median_value}")
-            if std:
-                std_value = data[column].std()
-                returnable_data['std'] = std_value
-                logger.info(f"Standard Deviation of {column}: {std_value}")
-            if min:
-                min_value = data[column].min()
-                returnable_data['min'] = min_value
-                logger.info(f"Minimum of {column}: {min_value}")
-            if max:
-                max_value = data[column].max()
-                returnable_data['max'] = max_value
-                logger.info(f"Maximum of {column}: {max_value}")
 
-    return returnable_data
+    db = SragDb()
+    columns = [column.upper() for column in columns]
+
+    try:
+        for year in years:
+            logger.info(f'Year: {year}')
+            if year not in [2019, 2020, 2021, 2022, 2023, 2024, 2025]:
+                logger.error('Year is not part of the dataset')
+            data = db.get_data(year)
+            data.fillna(-1, inplace = True)
+            columns_dict = {}
+            for column in columns:
+                year_dict = {} 
+                response = pd.Categorical(data[column], ordered = True)
+                year_dict['median'] = np.median(response.codes)
+                year_dict['freq'] = data[column].value_counts()
+                columns_dict[column] = year_dict
+            returnable_data[year] = columns_dict 
+        return returnable_data
+    except Exception as e:
+        logger.error(f'Error summarizing: {e}')
+        raise e
+        return returnable_dict
 
 @tool
 def generate_statistical_report(
