@@ -41,11 +41,13 @@ class SragDb(MainLogger):
                 CREATE TABLE IF NOT EXISTS data_sus (
                     year INTEGER,
                     SG_UF_NOT TEXT,
+                    EVOLUCAO INTEGER,
                     DT_NOTIFIC DATETIME,
+                    SEM_NOT INTEGER,
                     UTI INTEGER,
                     VACINA_COV INTEGER,
                     HOSPITAL INTEGER,
-                    UNIQUE (year, SG_UF_NOT, DT_NOTIFIC, UTI, VACINA_COV, HOSPITAL)
+                    UNIQUE (year, SG_UF_NOT, EVOLUCAO, DT_NOTIFIC, SEM_NOT, UTI, VACINA_COV, HOSPITAL)
                 );
             ''')
         return
@@ -56,8 +58,8 @@ class SragDb(MainLogger):
             return False
         
         insertion_query = """
-            INSERT INTO data_sus (year, SG_UF_NOT, DT_NOTIFIC, UTI, VACINA_COV, HOSPITAL)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO data_sus (year, SG_UF_NOT, EVOLUCAO, DT_NOTIFIC,  SEM_NOT, UTI, VACINA_COV, HOSPITAL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT DO NOTHING
             """
         
@@ -67,7 +69,9 @@ class SragDb(MainLogger):
                 (
                     d['year'], 
                     d['SG_UF_NOT'], 
+                    d['EVOLUCAO'],
                     d['DT_NOTIFIC'], 
+                    d['SEM_NOT'],
                     d['UTI'], 
                     d['VACINA_COV'], 
                     d['HOSPITAL']
@@ -82,7 +86,7 @@ class SragDb(MainLogger):
             self.error(f"Error while inserting data to the db: {e}")
             return False
         
-    def get_data(self, year: str):
+    def get_data(self, year: int):
         if year not in ["all", 2019, 2020, 2021, 2022, 2023, 2024, 2025]:
             self.error("Option not available")
             return None
