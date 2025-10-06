@@ -1,5 +1,7 @@
 from fastapi import FastAPI
-from schemas import (
+from src.api.schemas import (
+    StoreResponseSchema,
+    StoreRequestSchema,
     FetchRequestSchema,
     FetchResponseSchema,
     SummaryRequestSchema,
@@ -10,17 +12,21 @@ from schemas import (
     GraphicalReportResponseSchema
 )
 from src.db.data_storage import SragDb
+from src.utils.logger import MainLogger
+import numpy as np
 import httpx
-import pnadas as pd
+import pandas as pd
 from bs4 import BeautifulSoup
 import re
 
 
 app = FastAPI()
 db = SragDb()
+logger = MainLogger(__name__)
 
-@app.post("/fetch", response_model = StoreResponseSchema)
-def fetch_data(request: FetchRequestSchema):
+@app.post("/store", response_model = StoreResponseSchema)
+def fetch_data(request: StoreRequestSchema):
+    logger.info(f"Starting data fetch for: {request.years}")
     with httpx.Client() as client:
         response = client.get("https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024", timeout=30000.0)
         response.raise_for_status()
@@ -30,17 +36,22 @@ def fetch_data(request: FetchRequestSchema):
     s3_link = None
 
     if request.years:
-        for link in items:
-            if 's3' in link::
-                s3_link = link
-                option = re.search(r'(\d{4})', link)[0]
-                if option and int(option) in request.years:
-                    df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]
-                    df['year'] = [int(option)] * len(df)
-                    insertion_result = db.store_data(df.to_dict(orient = 'records'))
-                    if not insertion_result:
-                        return {"status": "error", "message": "Failed to insert data into the database"}
+        logger.info(f"Fetching data for years: {request.years}")
+        try:
+            for link in items:
+                if 's3' in link:
+                    s3_link = link
+                    option = re.search(r'(\d{4})', link)[0]
+                    if option and int(option) in request.years:
+                        df = pd.read_csv(s3_link, sep = ';', low_memory = False)
+                        df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'SEM_NOT', 'HOSPITAL', 'EVOLUCAO']]
+                        df['year'] = [int(option)] * len(df)
+                        insertion_result = db.insert(df.to_dict(orient = 'records'))
+
+        except Exception as e:
+            logger.error(f"Error fetching data: {e}")            
+
+            return {"status": "error", "message": "Failed to insert data into the database"}
     else:
         for item in items:
             if 's3' in item:
@@ -48,21 +59,21 @@ def fetch_data(request: FetchRequestSchema):
                 option = re.search(r'(\d{4})', item)[0]
                 if option:
                     df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]
+                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'SEM_NOT', 'HOSPITAL', 'EVOLUCAO']]
                     df['year'] = [int(option)] * len(df)
-                    insertion_result = db.store_data(df.to_dict(orient = 'records'))
+                    insertion_result = db.insert(df.to_dict(orient = 'records'))
                     if not insertion_result:
                         return {"status": "error", "message": "Failed to insert data into the database"}
 
     return {"status": "success", "message": "Data fetched and stored successfully with all available years."}
 
-@app.get("/summary", response_model = SummaryResponseSchema)
+@app.post("/summary", response_model = SummaryResponseSchema)
 def summarize_data(request: SummaryRequestSchema):
     logger.info(f"Starting data summary for: {request}")
     returnable_data = {}
 
     columns = [column.upper() for column in request.columns]
-    years = request.years or [2021, 2022, 2023, 2024, 2025]
+    years = request.years if request.years else [2021, 2022, 2023, 2024, 2025]
 
     for year in years:
         year_data = db.get_data(year)
@@ -70,16 +81,16 @@ def summarize_data(request: SummaryRequestSchema):
         column_dict = {}
         for column in columns:
             year_dict = {} 
-            response = pd.Categorical(data[column], ordered = True)
+            response = pd.Categorical(year_data[column], ordered = True)
             year_dict['median'] = np.median(response.codes)
-            year_dict['freq'] = data[column].value_counts()
-            columns_dict[column] = year_dict
-        returnable_data[year] = columns_dict 
+            year_dict['freq'] = year_data[column].value_counts().to_numpy().tolist()
+            column_dict[column] = year_dict
+        returnable_data[year] = column_dict
     if not returnable_data:
         return {"status": "error", "summaries": "{}"}
     return {"status": "success", "summaries": returnable_data}
 
-@app.get("/report", response_model = ReportResponseSchema)
+@app.post("/report", response_model = ReportResponseSchema)
 def generate_report(request: ReportRequestSchema):
     logger.info(f"Starting report generation for: {request}")
     if request.year not in [2021, 2022, 2023, 2024, 2025]:
@@ -121,12 +132,12 @@ def generate_report(request: ReportRequestSchema):
         data = data[data['SG_UF_NOT'] == request.state.upper()]
 
     try:
-        year_int = int(year)
+        year_int = int(request.year)
 
         data['DT_NOTIFIC'] = pd.to_datetime(data['DT_NOTIFIC'])
         mask = (data['DT_NOTIFIC'].dt.year == year_int) & \
-            (data['DT_NOTIFIC'].dt.month >= starting_month) & \
-            (data['DT_NOTIFIC'].dt.month <= ending_month)
+            (data['DT_NOTIFIC'].dt.month >= request.starting_month) & \
+            (data['DT_NOTIFIC'].dt.month <= request.ending_month)
 
         filtered_data = data[mask]
 
@@ -159,7 +170,7 @@ def generate_report(request: ReportRequestSchema):
 
         logger.info(f"{perc_vaccinated}")
 
-        logger.info(f"{uti_cases}")
+        logger.info(f"{perc_uti}")
 
         return {'status':'success', 
         'death_count': int(death_count),
@@ -173,7 +184,7 @@ def generate_report(request: ReportRequestSchema):
         logger.error(f'Error converting data: {e}')
         raise e
 
-@app.get("/graphical_report", response_model = GraphicalReportResponseSchema)
+@app.post("/graphical_report", response_model = GraphicalReportResponseSchema)
 def generate_graphical_report(request: GraphicalReportRequestSchema):
     if request.year not in [2021, 2022, 2023, 2024, 2025]:
         return {"status": "error", 
@@ -207,32 +218,43 @@ def generate_graphical_report(request: GraphicalReportRequestSchema):
         }
     
     try:
-        try:
         logger.info('Grouping the data')    
         grouped = data.fillna(0).groupby(by = ['DT_NOTIFIC', 'SG_UF_NOT']).count().reset_index()
         grouped['DT_NOTIFIC'] = pd.to_datetime(grouped['DT_NOTIFIC'])
-        if state:
-            grouped = grouped[grouped['SG_UF_NOT'] == state].set_index('DT_NOTIFIC').resample(granularity).count()
+        if request.state:
+            grouped = grouped[grouped['SG_UF_NOT'] == request.state].set_index('DT_NOTIFIC').resample(request.granularity).count().reset_index()
         else:
-            grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count().reset_index()
+            grouped = grouped.set_index('DT_NOTIFIC').resample(request.granularity).count().reset_index()
     except Exception as e:
         logger.error(f'Error grouping data: {e}')
         raise e
 
     try:
         logger.info('Creating the graph')
-        
-        x = grouped['DT_NOTIFIC'].tolist()
+
+        x = grouped['DT_NOTIFIC'].dt.strftime('%Y-%m-%d').tolist()
         y = grouped['year'].tolist()
 
         return {
             "x": x,  
             "y": y,
             "total_points": len(x),
-            "state": state or "all",
-            "year": year,
-            "granularity": granularity
+            "state": request.state or "all",
+            "message": "Graphical report generated successfully.",
+            "granularity": request. granularity
         }
     except Exception as e:
         logger.error(f'Error while creating the graph: {e}')
         raise e
+        return {
+            "x": None,  
+            "y": None,
+            "total_points": None,
+            "state": request.state or "all",
+            "message": "Error generating the graphical report.",
+            "granularity": request.granularity
+        }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

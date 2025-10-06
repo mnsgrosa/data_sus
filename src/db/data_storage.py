@@ -9,13 +9,14 @@ class SragDb(MainLogger):
         super().__init__(__name__)
         self.db_name = "data_sus"
         self.schema_name = "srag"
-        self.conn = sqlite3.connect("data_sus.db")
+        self.conn = sqlite3.connect("data_sus.db", check_same_thread = False)
         self._check_schema()
-            
+        self.db_file = "data_sus.db"
+
     @contextmanager
     def get_cursor(self):
         if self.conn is None:
-            self.conn = sqlite3.connect(self.db_file)
+            self.conn = sqlite3.connect(self.db_file, check_same_thread = False)
         
         cursor = None
         try:
