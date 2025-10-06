@@ -10,4 +10,5 @@ wheels/
 .venv
 *.csv
 *.png
+.db
 *.db
