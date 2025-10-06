@@ -21,6 +21,9 @@ for message in st.session_state.messages:
     with st.chat_message(message['role']):
         st.markdown(message['content'])
 
+if "summaries" not in st.session_state:
+    st.session_state['summaries'] = {}
+
 if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -44,6 +47,23 @@ for msg in st.session_state.chat_history:
                 st.plotly_chart(fig, use_container_width=True, key=f"fig_{msg['timestamp']}_{idx}")
 
 new_figures = []
+
+with st.sidebar:
+    st.markdown('# Srag agent')
+    st.markdown('## Columns available')
+    st.markdown('''
+    EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT <br>
+    for more information ask the agent about the data dictionary
+    ''')
+    st.markdown('---')
+    st.markdown('## Summaries about the columns')
+
+    for year in st.session_state.summaries.keys():
+        st.markdown(f'## Summary from {year}')
+        for column in st.session_state.summaries[year]:
+            st.markdown(f'### {column}')
+            st.table(st.session_state.summaries[year][column])
+        st.markdown('---')
 
 if prompt:= st.chat_input('Chat with arxiv mcp'):
     st.session_state.messages.append({'role': 'user', 'content': prompt, "timestamp": len(st.session_state.chat_history)})
@@ -80,6 +100,23 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                         elif message.name == 'generate_statistical_report':
                             items = json.loads(message.content)
                             st.table(pd.DataFrame(items).round(2))
+                        elif message.name == 'summarize_numerical_data':
+                            items = json.loads(message.content)
+                            st.json(items)
+                            year_dict = {}
+                            for year in items.keys():
+                                column_dict = {}
+                                for column in items[year].keys():
+                                    value_dict = {}
+                                    value_dict['median'] = items[year][column]['median']
+                                    for freq in items[year][column]['freq'].keys():
+                                        value_dict[f'freq_{freq}'] = items[year][column]['freq'][freq]
+                                    column_dict[column] = value_dict
+                                st.session_state.summaries[year] = column_dict
+
+                            # for item in items.keys():
+                            #     pass
+                        
 
                     
                 # if result.get("summary"):
