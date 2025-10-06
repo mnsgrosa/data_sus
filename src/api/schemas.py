@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
 class StoreRequestSchema(BaseModel):
-    year: Optional[List[int]] = Field([], description="Year of the data to store")
+    years: Optional[List[int]] = Field([], description="Year of the data to store")
 
 class StoreResponseSchema(BaseModel):
     status: str = Field(..., description="Status of the response")
@@ -10,8 +10,7 @@ class StoreResponseSchema(BaseModel):
 
 class FetchRequestSchema(BaseModel):
     years: List[int] = Field(..., description="Years to fetch data for")
-    columns: List[str] = Field(..., description="Column names to fetch")
-
+    
 class FetchResponseSchema(BaseModel):
     status: str = Field(..., description="Status of the response")
     data: Dict[str, Any] = Field(..., description="Data returned in the response")
@@ -20,13 +19,16 @@ class SummaryRequestSchema(BaseModel):
     years: List[int] = Field(..., description="Years of the summary")
     columns: List[str] = Field(..., description="Column names")
 
-class SummaryItemSchema(BaseModel):
-    median: float = Field(..., description="Median value")
-    freq: Dict[str, int] = Field(..., description="Frequency distribution")
+class InnerSummaryItemSchema(BaseModel):
+    median: Optional[float] = Field(None, description="Median value of the column")
+    freq: List[int] = Field(default_factory=list, description="Frequency distribution of the column values")
 
 class SummaryResponseSchema(BaseModel):
     status: str = Field(..., description="Status of the response")
-    summaries: Dict[int, Dict[str, SummaryItemSchema]] = Field(..., description="Summaries by year and column")
+    summaries: Dict[int, Dict[str, InnerSummaryItemSchema]] = Field(
+        ..., 
+        description="Summaries by year and column"
+    )
 
 class ReportRequestSchema(BaseModel):
     year: int = Field(..., description="Year for the report")
