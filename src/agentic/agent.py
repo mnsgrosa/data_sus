@@ -9,14 +9,19 @@ from src.agentic.agent_tools.tools import (
     generate_statistical_report,
     generate_temporal_graphical_report
 )
+import getpass
+from dotenv import load_dotenv
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional, TypedDict
 from langgraph.graph import StateGraph, START, END 
 from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from src.utils.logger import MainLogger
 from pydantic import BaseModel, Field
+import os
 
+load_dotenv()
 
 class ReportInfo(TypedDict):
     messages: List[HumanMessage | AIMessage]
@@ -43,6 +48,15 @@ class StatisticalAgent(MainLogger):
         self.tool_map = {tool.name: tool for tool in self.tools}
         
         self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
+        # self.llm_tool_caller = ChatGoogleGenerativeAI(
+        #     model = 'gemini-2.5-flash-lite',
+        #     temperature = 0.3,
+        #     max_tokens = None,
+        #     timeout = None,
+        #     max_retries = 2,
+        #     google_api_key = os.getenv("GOOGLE_API_KEY"),
+        #     verbose=True
+        # )
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
         self._init_graph()
@@ -182,7 +196,7 @@ class StatisticalAgent(MainLogger):
                 )
                 tool_messages.append(tool_message)
         
-        return {"messages": tool_messages}
+        return {"messages": messages + tool_messages}
 
     def should_continue(self, state: ReportInfo):
         messages = state["messages"]
@@ -237,12 +251,14 @@ class StatisticalAgent(MainLogger):
             generate_temporal_graphical_report(state: Optional[str], year: Optional[str], granularity: str) -> Dict[str, Any]:
             Generates a graphical report about influenza cases.
 
-            ARGS:
-                state: Optional[str]: Brazilian state code like 'PE', 'CE', 'SP'. Defaults to all states.
-                year: Optional[str]: Year to analyze. Defaults to '2025'.
-                granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual).
-            RETURNS:
-                Dict with figure_id, description, and data points.
+          Summarizes the data in the specified column of the DataFrame.
+
+    ARGS:
+        columns: List[str]: A list of columns to summarize.
+        years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
+
+    RETURNS:
+        Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
         """
 
         if len(messages) == 1 or not isinstance(messages[0], SystemMessage):

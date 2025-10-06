@@ -27,7 +27,7 @@ def store_csvs(year: str) -> Dict[str, Any]:
     
     Whenever the user asks to get data, fetch data, store data it refers to this function
     ARGS:
-        year: str: Year chosen by the user. the options are ['all', '2021', '2022', '2023', '2024', '2025']
+        year: str: Year chosen by the user. the options are [2021', '2022', '2023', '2024', '2025']
     RETURNS:
         pandas dataframe as dict.
     """
@@ -72,7 +72,7 @@ def store_csvs(year: str) -> Dict[str, Any]:
                 option = re.findall(r'\d{4}', link)[0]
                 if year == option:
                     df = pd.read_csv(s3_link, sep = ';', low_memory = False)
-                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'HOSPITAL', 'EVOLUCAO']]  # Added EVOLUCAO here too
+                    df = df[['SG_UF_NOT', 'DT_NOTIFIC', 'UTI', 'VACINA_COV', 'SEM_NOT', 'HOSPITAL', 'EVOLUCAO']] 
                     df['year'] = [int(year)] * len(df)
                     logger.info(f"Data {df}")
                     insertion_result = db.insert(df.to_dict(orient = 'records'))
@@ -146,7 +146,7 @@ def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, 
 
 @tool
 def generate_statistical_report(
-    year: str,
+    year: int,
     starting_month: int,
     ending_month: int,
     state: Optional[str] = 'all',
@@ -170,7 +170,7 @@ def generate_statistical_report(
             RETURNS:
                 A summary of the data of total cases from that year
     """
-    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
+    if year not in [2021, 2022, 2023, 2024, 2025]:
         logger.error("Invalid year provided")
         raise ValueError("Invalid year provided")
 
@@ -239,9 +239,9 @@ def generate_statistical_report(
         raise e
         
 @tool
-def generate_temporal_graphical_report(state: Optional[str], year: Optional[str],  granularity: str = 'D') -> Dict[str, Any]:
+def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 'D', state: Optional[str] = None) -> Dict[str, Any]:
     """
-    Generates a graphical report about the influenza cases in the selected state if not provided state defaults to 'all',
+    Generates a graphical report about the influenza cases in the selected state if not provided state defaults to None,
 
     ARGS:
         state: str: Brazillian state options with the two first carachters like: 'PE', 'CE', 'SP'
@@ -251,7 +251,7 @@ def generate_temporal_graphical_report(state: Optional[str], year: Optional[str]
         A dictionary with the figure_id, description from the plot and the data points
     """
     logger.info('Starting temporal graphical report')
-    if year not in ["all", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]:
+    if year not in range(2021, 2025):
         logger.error("Invalid year provided")
         raise ValueError("Invalid year provided")
 
@@ -273,8 +273,7 @@ def generate_temporal_graphical_report(state: Optional[str], year: Optional[str]
         if state:
             grouped = grouped[grouped['SG_UF_NOT'] == state].set_index('DT_NOTIFIC').resample(granularity).count()
         else:
-            grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count()
-            grouped = grouped.iloc[:, 0]
+            grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count().reset_index()
     except Exception as e:
         logger.error(f'Error grouping data: {e}')
         raise e
@@ -282,12 +281,9 @@ def generate_temporal_graphical_report(state: Optional[str], year: Optional[str]
     try:
         logger.info('Creating the graph')
         
-        grouped['DT_NOTIFIC'] = grouped['DT_NOTIFIC'].dt.strftime('%Y-%m-%d')
-        
         x = grouped['DT_NOTIFIC'].tolist()
-        y = grouped['SG_UF_NOT'].tolist()
+        y = grouped['year'].tolist()
 
-        # Return without the full figure object to avoid serialization issues
         return {
             "x": x,  
             "y": y,
