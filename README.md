@@ -1,5 +1,12 @@
 # DataSus conversational agent
 
+## Disclaimer
+
+The architectures shown in this readme are also uploaded as pdfs within the root of the repository the files are 'main_archtecture.pdf' and 
+'api_archtecture.pdf'
+
+---
+
 This agent consists on using a React agent, the reason being that the agent gets the prompt
 and reflects about what was prompted. This project was made using langchain and langgraph at the other 
 branches it adds up the complexity.
