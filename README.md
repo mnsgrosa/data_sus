@@ -1,6 +1,6 @@
 # How to run this branch
 
-You need docker and docker compose installed after that run the following command at the root directory
+You need docker and docker compose installed, after that run the following command at the root directory
 
 ```
 docker compose up .
@@ -11,8 +11,8 @@ the dashboard will run on [streamlit](http://localhost:8501) and the backand at 
 
 ## Disclaimer
 
-The architectures shown in this readme are also uploaded as pdfs within the root of the repository the files are 'main_archtecture.pdf' and 
-'api_archtecture.pdf'
+1) The architectures shown in this readme are also uploaded as pdfs within the root of the repository the files are 'main_archtecture.pdf' and 'api_archtecture.pdf'
+2) This project doesnt need a .env because it runs locally since i will be running to prsent it
 
 ---
 
@@ -27,28 +27,6 @@ branches it adds up the complexity.
 I would implement a fourth one where the prompt was sent to an api but due to computational restraints
 i let go of doing this one.
 
-## How to run main branch
-
-Firstly you'll need to download uv for so you can install its dependencies
-after you're done run the following commands
-
-```
-uv venv --python==3.11
-```
-
-This will create the virtual environmentm after that you will need
-to activate this env
-
-```
-source .venv/bin/activate & uv sync
-```
-
-
-than you can already run the project, with the following command at the root of the project
-
-```
-streamlit run app.py
-```
 the dashboard will run at [http://localhost:8501][localhost]
 
 ## How its tools work
