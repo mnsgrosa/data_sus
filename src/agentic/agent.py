@@ -40,6 +40,7 @@ class StatisticalAgent(MainLogger):
         self.tool_map = {tool.name: tool for tool in self.tools}
         
         self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
+        
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
         self._init_graph()
@@ -48,7 +49,7 @@ class StatisticalAgent(MainLogger):
 
     def _init_graph(self):
         self.graph.add_node("assistant", self.assistant)
-        self.graph.add_node("tools", self.call_tools)  
+        self.graph.add_node("tools", self.call_tools) 
         self.graph.add_edge(START, "assistant")
         self.graph.add_conditional_edges(
             "assistant",
@@ -96,6 +97,7 @@ class StatisticalAgent(MainLogger):
             return obj.tolist()
         
         elif hasattr(obj, 'to_dict') and not hasattr(obj, '_data_class_name'):
+            
             try:
                 dict_repr = obj.to_dict()
                 return self._serialize_for_json(dict_repr)
@@ -115,7 +117,9 @@ class StatisticalAgent(MainLogger):
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
             
+           
             if tool_name == "generate_statistical_report":
+               
                 if "starting_month" in tool_args:
                     tool_args["starting_month"] = str(tool_args["starting_month"])
                     self.logger.info(f"Coerced starting_month to string: {tool_args['starting_month']}")
