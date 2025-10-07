@@ -44,19 +44,10 @@ class StatisticalAgent(MainLogger):
             generate_temporal_graphical_report
         ]
         
-        # Create a tool map for execution
         self.tool_map = {tool.name: tool for tool in self.tools}
         
-        # self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
-        self.llm_tool_caller = ChatGoogleGenerativeAI(
-            model = 'gemini-2.5-flash-lite',
-            temperature = 0.3,
-            max_tokens = None,
-            timeout = None,
-            max_retries = 2,
-            google_api_key = os.getenv("GOOGLE_API_KEY"),
-            verbose=True
-        )
+        self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
+        
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
         self._init_graph()
@@ -65,7 +56,7 @@ class StatisticalAgent(MainLogger):
 
     def _init_graph(self):
         self.graph.add_node("assistant", self.assistant)
-        self.graph.add_node("tools", self.call_tools)  # Use custom tool caller
+        self.graph.add_node("tools", self.call_tools) 
         self.graph.add_edge(START, "assistant")
         self.graph.add_conditional_edges(
             "assistant",
@@ -80,20 +71,16 @@ class StatisticalAgent(MainLogger):
 
     def _serialize_for_json(self, obj: Any) -> Any:
         """Recursively serialize objects for JSON compatibility"""
-        # Handle Plotly figures specially - don't serialize them
         if hasattr(obj, '_data_class_name') or (hasattr(obj, '__module__') and 'plotly' in str(obj.__module__)):
-            # Return a reference instead of the full figure
             return {"_plotly_figure": True, "_type": str(type(obj).__name__)}
         
         if isinstance(obj, int):
             return obj
         
         if isinstance(obj, dict):
-            # Convert tuple keys to strings
             serialized_dict = {}
             for k, v in obj.items():
                 if isinstance(k, tuple):
-                    # Convert tuple to string representation
                     key_str = str(k)
                     self.logger.debug(f"Converting tuple key {k} to string: {key_str}")
                 else:
@@ -117,7 +104,7 @@ class StatisticalAgent(MainLogger):
             return obj.tolist()
         
         elif hasattr(obj, 'to_dict') and not hasattr(obj, '_data_class_name'):
-            # Handle pandas DataFrames, Series, etc. but NOT Plotly figures
+            
             try:
                 dict_repr = obj.to_dict()
                 return self._serialize_for_json(dict_repr)
@@ -137,9 +124,9 @@ class StatisticalAgent(MainLogger):
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
             
-            # Type coercion for common issues
+           
             if tool_name == "generate_statistical_report":
-                # Convert month integers to strings
+               
                 if "starting_month" in tool_args:
                     tool_args["starting_month"] = str(tool_args["starting_month"])
                     self.logger.info(f"Coerced starting_month to string: {tool_args['starting_month']}")
@@ -162,7 +149,6 @@ class StatisticalAgent(MainLogger):
                 tool = self.tool_map[tool_name]
                 result = tool.invoke(tool_args)
                 
-                # Ensure result is a dict
                 if not isinstance(result, dict):
                     self.logger.warning(f"Tool {tool_name} returned non-dict: {type(result)}")
                     if isinstance(result, str):
@@ -173,12 +159,10 @@ class StatisticalAgent(MainLogger):
                     else:
                         result = {"result": result}
                 
-                # Serialize the result for JSON compatibility
                 serialized_result = self._serialize_for_json(result)
                 
                 self.logger.info(f"Tool {tool_name} serialized result keys: {serialized_result.keys()}")
                 
-                # Create ToolMessage with dict content
                 tool_message = ToolMessage(
                     content=json.dumps(serialized_result),
                     tool_call_id=tool_id,
@@ -290,12 +274,9 @@ class StatisticalAgent(MainLogger):
                         continue
                 
                 if isinstance(result, dict):
-                    # Handle figure results - check for figure_id instead of figure object
                     if 'figure_id' in result:
-                        # Check if this figure is already in the list
                         existing_ids = [f.get('figure_id') for f in figures if isinstance(f, dict)]
                         if result['figure_id'] not in existing_ids:
-                            # Store the complete result (without the large figure object)
                             figure_data = {
                                 'figure_id': result['figure_id'],
                                 'description': result.get('description', ''),
@@ -309,17 +290,14 @@ class StatisticalAgent(MainLogger):
                             figures.append(figure_data)
                             self.logger.info(f"Added figure: {result['figure_id']} with {result.get('total_points', 0)} data points")
                     
-                    # Handle report results
                     if 'report' in result:
                         report.append(result['report'])
                         self.logger.info(f"Added report")
                     
-                    # Handle summary statistics
                     if any(k in result for k in ['mean', 'median', 'std', 'min', 'max']):
                         summary.append(result)
                         self.logger.info(f"Added summary stats: {list(result.keys())}")
                     
-                    # Handle struct/data dictionary
                     if any(k.startswith('_') for k in result.keys()):
                         struct = result
                         self.logger.info(f"Added struct with {len(result)} keys")
@@ -367,7 +345,6 @@ if __name__ == "__main__":
     print(f"Summary: {len(result.get('summary', []))}")
     print(f"Struct keys: {len(result.get('struct', {}))}")
     
-    # Print last few messages for debugging
     print("\n=== LAST MESSAGES ===")
     for i, msg in enumerate(result['messages'][-3:]):
         print(f"\nMessage {i}:")
