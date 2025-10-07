@@ -191,7 +191,7 @@ def generate_graphical_report(request: GraphicalReportRequestSchema):
         "x": [],
         "y": [],
         "total_points": 0,
-        "state": request.state or "all",
+        "state": request.state if request.state else "all",
         "granularity": request.granularity,
         "message": "Invalid year provided."
         }
@@ -201,7 +201,7 @@ def generate_graphical_report(request: GraphicalReportRequestSchema):
         "x": [],
         "y": [],
         "total_points": 0,
-        "state": request.state or "all",
+        "state": request.state if request.state else "all",
         "granularity": request.granularity,
         "message": "Invalid granularity provided."
         }
@@ -212,7 +212,7 @@ def generate_graphical_report(request: GraphicalReportRequestSchema):
         "x": [],
         "y": [],
         "total_points": 0,
-        "state": request.state or "all",
+        "state": request.state if request.state else "all",
         "granularity": request.granularity,
         "message": "No data found for the specified year."
         }

@@ -47,16 +47,16 @@ class StatisticalAgent(MainLogger):
         # Create a tool map for execution
         self.tool_map = {tool.name: tool for tool in self.tools}
         
-        self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
-        # self.llm_tool_caller = ChatGoogleGenerativeAI(
-        #     model = 'gemini-2.5-flash-lite',
-        #     temperature = 0.3,
-        #     max_tokens = None,
-        #     timeout = None,
-        #     max_retries = 2,
-        #     google_api_key = os.getenv("GOOGLE_API_KEY"),
-        #     verbose=True
-        # )
+        # self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
+        self.llm_tool_caller = ChatGoogleGenerativeAI(
+            model = 'gemini-2.5-flash-lite',
+            temperature = 0.3,
+            max_tokens = None,
+            timeout = None,
+            max_retries = 2,
+            google_api_key = os.getenv("GOOGLE_API_KEY"),
+            verbose=True
+        )
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
         self._init_graph()
