@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import json
 import glob
 import numpy as np
+from langchain_core.messages import AIMessage, ToolMessage
 
 @st.cache_resource
 def get_agent():
@@ -32,14 +33,13 @@ if 'agent_state' not in st.session_state:
     st.session_state['agent_state'] = {
         "messages": [],
         "report": [],
-        "insights": [],
         "struct": {},
         "summary": [],
         "stat_report": [],
         "figures": []
     }
 
-for msg in st.session_state.chat_history:
+for msg in st.session_state.chat_history[-5:]:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
         
@@ -51,6 +51,8 @@ new_figures = []
 
 with st.sidebar:
     st.markdown('# Srag agent')
+    st.markdown('## Tools available: Csv downloader, Statistical report generator, Temporal graphical report generator, Numerical data summarizer, Data dictionary fetcher')
+    st.markdown('---')
     st.markdown('## Columns available')
     st.markdown('''
     EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT <br>
@@ -67,7 +69,7 @@ with st.sidebar:
         st.markdown('---')
 
 if prompt:= st.chat_input('Chat with arxiv mcp'):
-    st.session_state.messages.append({'role': 'user', 'content': prompt, "timestamp": len(st.session_state.chat_history)})
+    st.session_state.chat_history.append({'role': 'user', 'content': prompt, "timestamp": len(st.session_state.chat_history)})
     with st.chat_message('user'):
         st.markdown(prompt)
 
@@ -82,22 +84,16 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                     initial_state = st.session_state['agent_state']
                 )
 
-                st.session_state.agent_state = result
-
-                last_message = None
-                for msg in reversed(result['messages']):
-                    if isinstance(msg, st.session_state.agent.llm_tool_caller.__class__.__bases__[0]):
-                        last_message = msg.content
-                        break
+                st.session_state['agent_state'] = result
 
                 item_msg = False
                 table_msg = False
                 dict_msg = False
                 store_msg = False
 
-                response_text = last_message or "Task completed."
-                for message in result['messages']:
-                    if message.type == 'tool':
+
+                for message in reversed(result['messages']):
+                    if isinstance(message, ToolMessage):
                         if message.name == 'generate_temporal_graphical_report':
                             item = json.loads(message.content)
                             data = pd.DataFrame({
@@ -112,7 +108,6 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                             table = st.table(pd.DataFrame(items))
                         elif message.name == 'summarize_numerical_data':
                             items = json.loads(message.content)
-                            st.json(items)
                             year_dict = {}
                             for year in items.keys():
                                 column_dict = {}
@@ -127,10 +122,12 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                             items = json.loads(message.content)
                             dict_msg = True
                             dict_ct = st.table(pd.DataFrame(items))
+                            st.session_state['struct'] = items
                         elif message.name == 'store_csvs':
                             store_msg = True
-                
-                    if message.type == 'ai':
+
+                    
+                    if isinstance(message, AIMessage):
                         if item_msg:
                             st.write(f"{message.content}")
                             item_msg = False
@@ -138,12 +135,18 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                             st.write(f"{message.content} + {table}")
                             table_msg = False
                         elif dict_msg:
-                            st.write(f"{message,content} + {dict_ct}")
+                            st.write(f"{message.content} + {dict_ct}")
                             dict_msg = False
                         elif store_msg:
                             st.write(f"{message.content}")
                             store_msg = False
-                        
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": message.content,
+                            "figures": new_figures,
+                            "timestamp": len(st.session_state.chat_history)
+                        })
+                        st.session_state.agent_state['messages'].append(message.content)
             
             except Exception as e:
                 st.error(f"Error: {str(e)}")

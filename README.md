@@ -11,6 +11,38 @@ branches it adds up the complexity.
 I would implement a fourth one where the prompt was sent to an api but due to computational restraints
 i let go of doing this one.
 
+## How to run main branch
+
+Firstly you'll need to download uv for so you can install its dependencies
+after you're done run the following commands
+
+```
+uv venv --python==3.11
+```
+
+This will create the virtual environmentm after that you will need
+to activate this env
+
+```
+source .venv/bin/activate & uv sync
+```
+
+
+than you can already run the project, with the following command at the root of the project
+
+```
+streamlit run app.py
+```
+the dashboard will run at [http://localhost:8501][localhost]
+
+## How its tools work
+
+1) The first tool is the one used for downloading the csv from the year specified from datasus website
+2) The second tool fetches the data dictionary also from the datasus website but it consumes too much vram because of docling
+3) Summarize data, this tool gets a column that the user asked and describes the output
+4) Statistical report generator, it gets the statistics present at the relatory such as death rate, UTI occupation rate
+5) A graph generator, it generates graph about the year you ask from the database and with the granularity you wish
+
 ## Decisions about the data
 
 I've made the decision to work with the following columns for the sake of chatting about the data.
@@ -79,7 +111,8 @@ happening throughout the code.
 
 The files has this pattern of src and streamlit for the reason that i can create the code as packages
 making it easier to import the file wherever my file is since i have the path ensured. the init files
-enforce that this patterns goes on
+enforce that this patterns goes onra realizar essa tarefa.
+
 
 ### Code:
 

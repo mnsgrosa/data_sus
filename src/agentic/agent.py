@@ -9,24 +9,17 @@ from src.agentic.agent_tools.tools import (
     generate_statistical_report,
     generate_temporal_graphical_report
 )
-import getpass
-from dotenv import load_dotenv
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional, TypedDict
 from langgraph.graph import StateGraph, START, END 
 from langchain_ollama import ChatOllama
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from src.utils.logger import MainLogger
 from pydantic import BaseModel, Field
-import os
-
-load_dotenv()
 
 class ReportInfo(TypedDict):
     messages: List[HumanMessage | AIMessage]
     report: List[Dict[str, Any]]
-    insights: List[str]
     struct: Dict[str, Any]
     summary: List[Dict[str, Any]]
     stat_report: List[Dict[str, Any]]
@@ -47,15 +40,6 @@ class StatisticalAgent(MainLogger):
         self.tool_map = {tool.name: tool for tool in self.tools}
         
         self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
-        # self.llm_tool_caller = ChatGoogleGenerativeAI(
-        #     model = 'gemini-2.5-flash-lite',
-        #     temperature = 0.3,
-        #     max_tokens = None,
-        #     timeout = None,
-        #     max_retries = 2,
-        #     google_api_key = os.getenv("GOOGLE_API_KEY"),
-        #     verbose=True
-        # )
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
         self._init_graph()
@@ -64,7 +48,7 @@ class StatisticalAgent(MainLogger):
 
     def _init_graph(self):
         self.graph.add_node("assistant", self.assistant)
-        self.graph.add_node("tools", self.call_tools)  # Use custom tool caller
+        self.graph.add_node("tools", self.call_tools)  
         self.graph.add_edge(START, "assistant")
         self.graph.add_conditional_edges(
             "assistant",
@@ -200,6 +184,11 @@ class StatisticalAgent(MainLogger):
 
         textual_description_of_tool = """
             The available columns for the data are: EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT 
+            RULES:
+            - Speak only in english
+            - Use the provided tools to fetch and manipulate data
+            - Always interact with the output from the last tool call
+            - You can not make up data, if you dont know the answer just say you dont know
             store_csvs(year: str) -> Dict[str, Any]: Fetches and stores the 'srag' dataset into the database.
             
             get_data_dict() -> Dict[str, Any]: Retrieves the data dictionary for the 'srag' dataset. When the user wants to talk about anything about the columns

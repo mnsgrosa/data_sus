@@ -251,7 +251,7 @@ def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 
         A dictionary with the figure_id, description from the plot and the data points
     """
     logger.info('Starting temporal graphical report')
-    if year not in range(2021, 2025):
+    if year not in range(2021, 2026):
         logger.error("Invalid year provided")
         raise ValueError("Invalid year provided")
 
