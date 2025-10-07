@@ -138,7 +138,7 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                             st.write(f"{message.content} + {table}")
                             table_msg = False
                         elif dict_msg:
-                            st.write(f"{message,content} + {dict_ct}")
+                            st.write(f"{message.content} + {dict_ct}")
                             dict_msg = False
                         elif store_msg:
                             st.write(f"{message.content}")
