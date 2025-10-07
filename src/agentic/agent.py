@@ -16,6 +16,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from src.utils.logger import MainLogger
 from pydantic import BaseModel, Field
+import os
 
 class ReportInfo(TypedDict):
     messages: List[HumanMessage | AIMessage]
@@ -39,7 +40,7 @@ class StatisticalAgent(MainLogger):
         
         self.tool_map = {tool.name: tool for tool in self.tools}
         
-        self.llm_tool_caller = ChatOllama(model="qwen2.5:14b")
+        self.llm_tool_caller = ChatOllama(model="llama3.1:8b", base_url = 'http://host.docker.internal:11434', temperature=0.0, max_retries=3, timeout=300)
         
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
         self.graph = StateGraph(ReportInfo)
@@ -117,9 +118,9 @@ class StatisticalAgent(MainLogger):
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
             
-           
+        
             if tool_name == "generate_statistical_report":
-               
+            
                 if "starting_month" in tool_args:
                     tool_args["starting_month"] = str(tool_args["starting_month"])
                     self.logger.info(f"Coerced starting_month to string: {tool_args['starting_month']}")
@@ -189,7 +190,6 @@ class StatisticalAgent(MainLogger):
         textual_description_of_tool = """
             The available columns for the data are: EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT 
             RULES:
-            - Speak only in english
             - Use the provided tools to fetch and manipulate data
             - Always interact with the output from the last tool call
             - You can not make up data, if you dont know the answer just say you dont know

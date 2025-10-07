@@ -91,62 +91,63 @@ if prompt:= st.chat_input('Chat with arxiv mcp'):
                 dict_msg = False
                 store_msg = False
 
+                st.write(result)
 
-                for message in reversed(result['messages']):
-                    if isinstance(message, ToolMessage):
-                        if message.name == 'generate_temporal_graphical_report':
-                            item = json.loads(message.content)
-                            data = pd.DataFrame({
-                                'x' : item.get('x'),
-                                'y' : item.get('y')
-                            })
-                            chart = st.line_chart(data, x = 'x', y = 'y')
-                            item_msg = True
-                        elif message.name == 'generate_statistical_report':
-                            items = json.loads(message.content)
-                            table_msg = True
-                            table = st.table(pd.DataFrame(items))
-                        elif message.name == 'summarize_numerical_data':
-                            items = json.loads(message.content)
-                            year_dict = {}
-                            for year in items.keys():
-                                column_dict = {}
-                                for column in items[year].keys():
-                                    value_dict = {}
-                                    value_dict['median'] = items[year][column]['median']
-                                    for freq in items[year][column]['freq'].keys():
-                                        value_dict[f'freq_{freq}'] = items[year][column]['freq'][freq]
-                                    column_dict[column] = value_dict
-                                st.session_state.summaries[year] = column_dict
-                        elif message.name == 'get_data_dict':
-                            items = json.loads(message.content)
-                            dict_msg = True
-                            dict_ct = st.table(pd.DataFrame(items))
-                            st.session_state['struct'] = items
-                        elif message.name == 'store_csvs':
-                            store_msg = True
+                # for message in reversed(result['messages']):
+                #     if isinstance(message, ToolMessage):
+                #         if message.name == 'generate_temporal_graphical_report':
+                #             item = json.loads(message.content)
+                #             data = pd.DataFrame({
+                #                 'x' : item.get('x'),
+                #                 'y' : item.get('y')
+                #             })
+                #             chart = st.line_chart(data, x = 'x', y = 'y')
+                #             item_msg = True
+                #         elif message.name == 'generate_statistical_report':
+                #             items = json.loads(message.content)
+                #             table_msg = True
+                #             table = st.table(pd.DataFrame(items))
+                #         elif message.name == 'summarize_numerical_data':
+                #             items = json.loads(message.content)
+                #             year_dict = {}
+                #             for year in items.keys():
+                #                 column_dict = {}
+                #                 for column in items[year].keys():
+                #                     value_dict = {}
+                #                     value_dict['median'] = items[year][column]['median']
+                #                     for freq in items[year][column]['freq'].keys():
+                #                         value_dict[f'freq_{freq}'] = items[year][column]['freq'][freq]
+                #                     column_dict[column] = value_dict
+                #                 st.session_state.summaries[year] = column_dict
+                #         elif message.name == 'get_data_dict':
+                #             items = json.loads(message.content)
+                #             dict_msg = True
+                #             dict_ct = st.table(pd.DataFrame(items))
+                #             st.session_state['struct'] = items
+                #         elif message.name == 'store_csvs':
+                #             store_msg = True
 
                     
-                    if isinstance(message, AIMessage):
-                        if item_msg:
-                            st.write(f"{message.content}")
-                            item_msg = False
-                        elif table_msg:
-                            st.write(f"{message.content} + {table}")
-                            table_msg = False
-                        elif dict_msg:
-                            st.write(f"{message.content} + {dict_ct}")
-                            dict_msg = False
-                        elif store_msg:
-                            st.write(f"{message.content}")
-                            store_msg = False
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": message.content,
-                            "figures": new_figures,
-                            "timestamp": len(st.session_state.chat_history)
-                        })
-                        st.session_state.agent_state['messages'].append(message.content)
+                #     if isinstance(message, AIMessage):
+                #         if item_msg:
+                #             st.write(f"{message.content}")
+                #             item_msg = False
+                #         elif table_msg:
+                #             st.write(f"{message.content} + {table}")
+                #             table_msg = False
+                #         elif dict_msg:
+                #             st.write(f"{message.content} + {dict_ct}")
+                #             dict_msg = False
+                #         elif store_msg:
+                #             st.write(f"{message.content}")
+                #             store_msg = False
+                #         st.session_state.chat_history.append({
+                #             "role": "assistant",
+                #             "content": message.content,
+                #             "figures": new_figures,
+                #             "timestamp": len(st.session_state.chat_history)
+                #         })
+                #         st.session_state.agent_state['messages'].append(message.content)
             
             except Exception as e:
                 st.error(f"Error: {str(e)}")

@@ -8,6 +8,9 @@ from src.agentic.agent_tools.tools_helper import extract_data_dictionary
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024"
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+}
 
 def get_db():
     return SragDb()
@@ -27,7 +30,7 @@ def store_csvs(years: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     logger.info("Starting the csv reader tool")
     with httpx.Client() as client:
-        response = client.post('http://api:8000/store', json = {"years": years if years else []}, timeout=30000.0)
+        response = client.post('http://api:8000/store', json = {"years": years if years else []}, headers = headers, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to fetch data: {response.text}")
@@ -66,7 +69,7 @@ def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, 
     """
     logger.info(f"Starting to summarize data from: {columns}")
     with httpx.Client() as client:
-        response = client.post('http://api:8000/summary', data = {"columns": columns, "years": years}, timeout=30000.0)
+        response = client.post('http://api:8000/summary', headers = headers, data = {"columns": columns, "years": years}, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to summarize data: {response.text}")
@@ -110,7 +113,7 @@ def generate_statistical_report(
             "state": state,
             "granularity": granularity
         }
-        response = client.get('http://api:8000/report', data = post_data, timeout=30000.0)
+        response = client.get('http://api:8000/report', data = post_data, headers = headers, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to generate report: {response.text}")
@@ -137,7 +140,7 @@ def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 
             "granularity": granularity,
             "state": state if state else None
         }
-        response = client.post('http://api:8000/graphical_report', json = post_data, timeout=30000.0)
+        response = client.post('http://api:8000/graphical_report', json = post_data, headers = headers, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to generate graphical report: {response.text}")
