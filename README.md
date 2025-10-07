@@ -1,3 +1,12 @@
+# How to run this branch
+
+You need docker and docker compose installed after that run the following command at the root directory
+
+```
+docker compose up .
+```
+the dashboard will run on [streamlit](http://localhost:8501) and the backand at [fastapi](http://localhost:8000)
+
 # DataSus conversational agent
 
 ## Disclaimer
