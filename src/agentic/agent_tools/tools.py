@@ -5,14 +5,6 @@ from typing import List, Tuple, Annotated, Optional, Dict, Any
 from langchain_core.tools import tool
 from src.utils.logger import MainLogger
 from src.agentic.agent_tools.tools_helper import extract_data_dictionary
-from src.db.data_storage import SragDb
-from pydantic import BaseModel, Field
-import numpy as np
-import plotly.express as px
-import matplotlib.pyplot as plt
-import re
-import datetime
-import httpx
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024"
@@ -35,7 +27,7 @@ def store_csvs(years: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     logger.info("Starting the csv reader tool")
     with httpx.Client() as client:
-        response = client.post('http://localhost:8000/fetch', json = {"years": years or []}, timeout=30000.0)
+        response = client.post('http://localhost:8000/store', json = {"years": years if years else []}, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to fetch data: {response.text}")
@@ -74,7 +66,7 @@ def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, 
     """
     logger.info(f"Starting to summarize data from: {columns}")
     with httpx.Client() as client:
-        response = client.get('http://localhost:8000/summary', data = {"columns": columns, "years": years}, timeout=30000.0)
+        response = client.post('http://localhost:8000/summary', data = {"columns": columns, "years": years}, timeout=30000.0)
         response.raise_for_status()
         if response.status_code != 200:
             logger.error(f"Failed to summarize data: {response.text}")
@@ -138,48 +130,17 @@ def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 
     RETURNS:
         A dictionary with the figure_id, description from the plot and the data points
     """
-    logger.info('Starting temporal graphical report')
-    if year not in range(2021, 2026):
-        logger.error("Invalid year provided")
-        raise ValueError("Invalid year provided")
-
-    if granularity not in ['D', 'W', 'ME', 'Q', 'A']:
-        logger.error(f"Invalid granularity provided: {granularity}")
-        raise ValueError("Granularity must be one of the following: 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual)")
-
-    db = get_db()
-
-    data = db.get_data(int(year))
-    if data is None:
-        logger.error("No data found for the specified year")
-        raise ValueError("No data found for the specified year")
-
-    try:
-        logger.info('Grouping the data')    
-        grouped = data.fillna(0).groupby(by = ['DT_NOTIFIC', 'SG_UF_NOT']).count().reset_index()
-        grouped['DT_NOTIFIC'] = pd.to_datetime(grouped['DT_NOTIFIC'])
-        if state:
-            grouped = grouped[grouped['SG_UF_NOT'] == state].set_index('DT_NOTIFIC').resample(granularity).count()
-        else:
-            grouped = grouped.set_index('DT_NOTIFIC').resample(granularity).count().reset_index()
-    except Exception as e:
-        logger.error(f'Error grouping data: {e}')
-        raise e
-
-    try:
-        logger.info('Creating the graph')
-        
-        x = grouped['DT_NOTIFIC'].tolist()
-        y = grouped['year'].tolist()
-
-        return {
-            "x": x,  
-            "y": y,
-            "total_points": len(x),
-            "state": state or "all",
-            "year": year,
-            "granularity": granularity
+    logger.info("Starting graphical report generation")
+    with httpx.Client() as client:
+        post_data = {
+            "year": year if year else 2025,
+            "granularity": granularity,
+            "state": state if state else None
         }
-    except Exception as e:
-        logger.error(f'Error while creating the graph: {e}')
-        raise e
+        response = client.post('http://localhost:8000/graphical_report', json = post_data, timeout=30000.0)
+        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Failed to generate graphical report: {response.text}")
+            return {"status": "error", "message": "Failed to generate graphical report"}
+        logger.info("Successfully generated the graphical report")
+    return response.json()
