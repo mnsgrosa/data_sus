@@ -1,0 +1,32 @@
+services:
+  api:
+    build: .
+    container_name: data_sus_api
+    command: python -m src.api.fast
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - data_sus_network
+
+  agent:
+    build: .
+    container_name: data_sus_agent
+    command: streamlit run app.py
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - api
+    networks:
+      - data_sus_network
+
+networks:
+  data_sus_network:
+    driver: bridge
