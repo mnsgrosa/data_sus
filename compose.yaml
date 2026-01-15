@@ -1,20 +1,4 @@
 services:
-  ollama:
-    build: ./ollama
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - data_sus_network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
   api:
     build: .
     container_name: data_sus_api
@@ -25,7 +9,7 @@ services:
       - ./:/app
     environment:
       - PYTHONUNBUFFERED=1
-      - OLLAMA_HOST=http://host.docker.internal:11434 
+      - OLLAMA_HOST=http://host.docker.internal:11434
     networks:
       - data_sus_network
     extra_hosts:
@@ -58,6 +42,3 @@ services:
 networks:
   data_sus_network:
     driver: bridge
-
-volumes:
-  ollama_data:
