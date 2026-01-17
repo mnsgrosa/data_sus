@@ -1,12 +1,10 @@
 import json
-import typing
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, TypedDict
 
-import numpy as np
-import pandas as pd
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_ollama import ChatOllama
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from src.agentic.agent_tools.tools import (
@@ -14,36 +12,39 @@ from src.agentic.agent_tools.tools import (
     generate_temporal_graphical_report,
     summarize_numerical_data,
 )
+from src.utils.logger import MainLogger
 
-from ..src.utils.logger import MainLogger
+from .agent_schema.main_schema import JsonEncoder, ReportInfo
 
-
-class ReportInfo(TypedDict):
-    messages: List[HumanMessage | AIMessage]
-    report: List[Dict[str, Any]]
-    struct: Dict[str, Any]
-    summary: List[Dict[str, Any]]
-    stat_report: List[Dict[str, Any]]
-    figures: List[Any]
+load_dotenv()
 
 
 class StatisticalAgent(MainLogger):
     def __init__(self):
         super().__init__(__name__)
+        self.initial_state = {
+            "messages_dicts": [],
+            "report_dict": [],
+            "insights_dict": [],
+            "struct": {},
+            "summary_dict": [],
+            "stat_report_dict": [],
+            "figures_dict": [],
+        }
         self.tools = [
+            store_csvs,
+            get_data_dict,
             summarize_numerical_data,
             generate_statistical_report,
             generate_temporal_graphical_report,
         ]
 
+        self.checkpointer = MemorySaver()
+
         self.tool_map = {tool.name: tool for tool in self.tools}
 
-        self.llm_tool_caller = ChatOllama(
-            model="llama3.1:8b",
-            base_url="http://host.docker.internal:11434",
-            temperature=0.0,
-            max_retries=3,
-            timeout=300,
+        self.llm_tool_caller = ChatGoogleGenerativeAI(
+            model="gemini-3-pro", temperature=0.2, max_tokens=None, max_retries=2
         )
 
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
@@ -55,126 +56,71 @@ class StatisticalAgent(MainLogger):
     def _init_graph(self):
         self.graph.add_node("assistant", self.assistant)
         self.graph.add_node("tools", self.call_tools)
+        self.graph.set_entry_point("assistant")
         self.graph.add_edge(START, "assistant")
         self.graph.add_conditional_edges(
             "assistant", self.should_continue, {"tools": "tools", "end": END}
         )
         self.graph.add_edge("tools", "assistant")
-        self.react_graph = self.graph.compile()
+        self.react_graph = self.graph.compile(checkpointer=self.checkpointer)
 
     def _serialize_for_json(self, obj: Any) -> Any:
-        """Recursively serialize objects for JSON compatibility"""
-        if hasattr(obj, "_data_class_name") or (
-            hasattr(obj, "__module__") and "plotly" in str(obj.__module__)
-        ):
-            return {"_plotly_figure": True, "_type": str(type(obj).__name__)}
-
-        if isinstance(obj, int):
-            return obj
-
-        if isinstance(obj, dict):
-            serialized_dict = {}
-            for k, v in obj.items():
-                if isinstance(k, tuple):
-                    key_str = str(k)
-                    self.logger.debug(f"Converting tuple key {k} to string: {key_str}")
-                else:
-                    key_str = k
-                serialized_dict[key_str] = self._serialize_for_json(v)
-            return serialized_dict
-
-        elif isinstance(obj, list) or isinstance(obj, tuple):
-            return [self._serialize_for_json(item) for item in obj]
-
-        elif isinstance(obj, (pd.Timestamp, datetime, date)):
-            return obj.isoformat()
-
-        elif isinstance(obj, np.integer):
-            return int(obj)
-
-        elif isinstance(obj, np.floating):
-            return float(obj)
-
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-
-        elif hasattr(obj, "to_dict") and not hasattr(obj, "_data_class_name"):
-            try:
-                dict_repr = obj.to_dict()
-                return self._serialize_for_json(dict_repr)
-            except Exception as e:
-                self.logger.warning(f"Failed to convert object to dict: {e}")
-                return str(obj)
+        encoder = JsonEncoder(data=obj)
+        return encoder.model_dump()["data"]
 
     def call_tools(self, state: ReportInfo) -> Dict[str, List]:
-        """Custom tool execution that preserves dict returns"""
-        messages = state["messages"]
+        messages = state["messages_dict"]
         last_message = messages[-1]
+
+        if not hasattr(last_message.get("assistant"), "tool_calls"):
+            self.logger.warning("No tool calls found in last message")
+            return {"messages_dict": messages}
 
         tool_messages = []
 
-        for tool_call in last_message.tool_calls:
+        for tool_call in last_message["assistant"].tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
 
-            if tool_name == "generate_statistical_report":
-                if "starting_month" in tool_args:
-                    tool_args["starting_month"] = str(tool_args["starting_month"])
-                    self.logger.info(
-                        f"Coerced starting_month to string: {tool_args['starting_month']}"
-                    )
-
-                if "ending_month" in tool_args:
-                    tool_args["ending_month"] = str(tool_args["ending_month"])
-                    self.logger.info(
-                        f"Coerced ending_month to string: {tool_args['ending_month']}"
-                    )
-
-            if tool_name == "summarize_numerical_data":
-                if "columns" in tool_args:
-                    tool_args["columns"] = [col for col in tool_args["columns"]]
-                    self.info("Got the columns")
-                if "years" in tool_args:
-                    tool_args["years"] = list(tool_args["years"])
-                    self.info("Succesfully fetched years")
-
             self.logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
 
             try:
+                if tool_name not in self.tool_map:
+                    raise ValueError(f"Unknown tool: {tool_name}")
+
                 tool = self.tool_map[tool_name]
+
                 result = tool.invoke(tool_args)
 
                 if not isinstance(result, dict):
                     self.logger.warning(
                         f"Tool {tool_name} returned non-dict: {type(result)}"
                     )
-                    if isinstance(result, str):
-                        try:
-                            result = json.loads(result)
-                        except json.JSONDecodeError:
-                            result = {"result": result}
-                    else:
-                        result = {"result": result}
+                    result = {"result": str(result)}
 
                 serialized_result = self._serialize_for_json(result)
 
-                self.logger.info(
-                    f"Tool {tool_name} serialized result keys: {serialized_result.keys()}"
-                )
-
                 tool_message = ToolMessage(
-                    content=json.dumps(serialized_result),
+                    content=json.dumps(serialized_result, ensure_ascii=False),
                     tool_call_id=tool_id,
                     name=tool_name,
                 )
                 tool_messages.append(tool_message)
 
+                self.logger.info(f"Tool {tool_name} executed successfully")
+
             except Exception as e:
                 self.logger.error(
                     f"Error executing tool {tool_name}: {e}", exc_info=True
                 )
-                error_result = {"error": str(e), "tool": tool_name}
+
+                error_result = {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "tool": tool_name,
+                }
+
                 tool_message = ToolMessage(
                     content=json.dumps(error_result),
                     tool_call_id=tool_id,
@@ -182,10 +128,10 @@ class StatisticalAgent(MainLogger):
                 )
                 tool_messages.append(tool_message)
 
-        return {"messages": messages + tool_messages}
+        return {"messages_dict": messages}
 
     def should_continue(self, state: ReportInfo):
-        messages = state["messages"]
+        messages = state["messages_dict"]
         last_message = messages[-1]
 
         if hasattr(last_message, "tool_calls") and last_message.tool_calls:
@@ -260,8 +206,7 @@ class StatisticalAgent(MainLogger):
         return {"messages": messages + [response]}
 
     def process_tool_results(self, state: ReportInfo):
-        """Process tool results and extract figures, reports, etc."""
-        messages = state["messages"]
+        messages = state["messages_dict"]
         figures = state.get("figures", [])
         report = state.get("report", [])
         summary = state.get("summary", [])
@@ -325,44 +270,19 @@ class StatisticalAgent(MainLogger):
             "struct": struct,
         }
 
-    def run(self, user_message: str, initial_state: Optional[Dict[str, Any]] = None):
-        if initial_state is None:
-            initial_state = {
-                "messages": [],
-                "report": [],
-                "insights": [],
-                "struct": {},
-                "summary": [],
-                "stat_report": [],
-                "figures": [],
-            }
+    def run(self, user_message: str):
+        prompt = HumanMessage(content=user_message)
 
-        initial_state["messages"].append(HumanMessage(content=user_message))
+        if self.initial_state["messages_dict"] is None:
+            self.initial_state["messages_dict"].append(
+                {"human": prompt, "assistant": None}
+            )
 
-        result = self.react_graph.invoke(initial_state)
+        result = self.react_graph.invoke(self.initial_state)
 
         processed = self.process_tool_results(result)
+        # Enforce a LLM output so it receives the same format as initial state schema
+        # self.initial_state[]
         result.update(processed)
 
         return result
-
-
-if __name__ == "__main__":
-    agent = StatisticalAgent()
-
-    result = agent.run("Store the CSV data for year 2024")
-
-    print("=== FINAL RESULT ===")
-    print(f"Messages: {len(result['messages'])}")
-    print(f"Figures: {len(result.get('figures', []))}")
-    print(f"Reports: {len(result.get('report', []))}")
-    print(f"Summary: {len(result.get('summary', []))}")
-    print(f"Struct keys: {len(result.get('struct', {}))}")
-
-    print("\n=== LAST MESSAGES ===")
-    for i, msg in enumerate(result["messages"][-3:]):
-        print(f"\nMessage {i}:")
-        print(f"Type: {type(msg).__name__}")
-        if hasattr(msg, "content"):
-            content_preview = str(msg.content)[:200]
-            print(f"Content preview: {content_preview}...")

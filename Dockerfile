@@ -1,26 +1,27 @@
-FROM python:3.11.7-slim
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS builder
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
-ENV PATH ="${VENV_PATH}/bin:${PATH}" \
-    VENV_PATH="/opt/venv"
+ENV UV_PYTHON_INSTALL_DIR=/python
 
-RUN pip install uv
+ENV UV_PYTHON_PREFERENCE=only-managed
 
-RUN apt-get update && apt-get install -y libgl1-mesa-glx
+RUN uv python install 3.12
 
-RUN uv venv --python=3.11.7 ${VENV_PATH}
+WORKDIR /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev --no-editable
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
-# Copy only requirements to cache them in docker layer
-WORKDIR /etl
-COPY uv.lock pyproject.toml /etl/
+FROM gcr.io/distroless/cc
 
-ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
+COPY --from=builder --chown=python:python /python /python
 
-RUN uv sync --locked $(test "$ENV" == prod && echo "--no-dev")
+WORKDIR /app
 
-COPY . /etl/
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
-
-RUN mkdir -p /etl/data && chmod -R 777 /etl/data
-
-
-RUN uv pip install -e . --system
+ENV PATH="/app/.venv/bin:$PATH"

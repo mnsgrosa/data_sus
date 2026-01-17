@@ -46,3 +46,11 @@ class GraphReportRequest(BaseModel):
     year: Optional[int] = None
     granularity: str = Field(...)
     state: Optional[str] = None
+
+
+class GraphReportResponse(BaseModel):
+    x: List[str] = Field(...)
+    y: List[float] = Field(...)
+    total_points: int = Field(...)
+    state: str = Field(...)
+    granularity: str = Field(...)

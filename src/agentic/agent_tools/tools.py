@@ -10,7 +10,7 @@ from src.utils.logger import MainLogger
 
 from .tools_utils.db.data_storage import SragDb
 from .tools_utils.tools_helper import fetch_data
-from .tools_utils.tools_schemas import (
+from .tools_utils.tools_schema import (
     GraphReportRequest,
     GraphReportResponse,
     StatReportRequest,
@@ -115,24 +115,10 @@ def generate_statistical_report(
     """
     logger.info(f"Starting report generation for: {request}")
     if request.year not in [2021, 2022, 2023, 2024, 2025]:
-        return {
-            "death_count": 0,
-            "death_rate": 0.0,
-            "total_cases": 0,
-            "cases_hospitalized": 0,
-            "perc_uti": 0.0,
-            "perc_vaccinated": 0.0,
-        }
+        return None
 
     if request.granularity not in ["D", "ME", "SE", "M"]:
-        return {
-            "death_count": 0,
-            "death_rate": 0.0,
-            "total_cases": 0,
-            "cases_hospitalized": 0,
-            "perc_uti": 0.0,
-            "perc_vaccinated": 0.0,
-        }
+        return None
 
     report = {}
 
@@ -142,16 +128,7 @@ def generate_statistical_report(
     if data is None:
         data = fetch_data(request.year)
     if data is None or data.empty:
-        return {
-            "status": "error",
-            "report": "No data found for the specified year.",
-            "death_count": 0,
-            "death_rate": 0.0,
-            "total_cases": 0,
-            "cases_hospitalized": 0,
-            "perc_uti": 0.0,
-            "perc_vaccinated": 0.0,
-        }
+        return None
 
     if request.state and request.state.lower() != "all":
         data = data[data["SG_UF_NOT"] == request.state.upper()]
@@ -222,23 +199,10 @@ def generate_temporal_graphical_report(
         A dictionary with the figure_id, description from the plot and the data points
     """
     if request.year not in [2021, 2022, 2023, 2024, 2025]:
-        return {
-            "x": [],
-            "y": [],
-            "total_points": 0,
-            "state": request.state if request.state else "all",
-            "granularity": request.granularity,
-        }
+        return None
 
     if request.granularity not in ["D", "ME", "SE", "M"]:
-        return {
-            "x": [],
-            "y": [],
-            "total_points": 0,
-            "state": request.state if request.state else "all",
-            "granularity": request.granularity,
-        }
-
+        return None
     db = get_db()
 
     data = db.get_data(request.year)
@@ -246,15 +210,7 @@ def generate_temporal_graphical_report(
         data = fetch_data(request.year)
 
     if data is None or data.empty:
-        return GraphReportResponse(
-            **{
-                "x": [],
-                "y": [],
-                "total_points": 0,
-                "state": request.state if request.state else "all",
-                "granularity": request.granularity,
-            }
-        )
+        return None
 
     try:
         logger.info("Grouping the data")
@@ -279,7 +235,7 @@ def generate_temporal_graphical_report(
             )
     except Exception as e:
         logger.error(f"Error grouping data: {e}")
-        return GraphReportResponse()
+        return None
 
     try:
         logger.info("Creating the graph")
@@ -288,7 +244,7 @@ def generate_temporal_graphical_report(
         y = grouped["year"].tolist()
 
         return GraphReportResponse(
-            {
+            **{
                 "x": x,
                 "y": y,
                 "total_points": len(x),
@@ -298,4 +254,4 @@ def generate_temporal_graphical_report(
         )
     except Exception as e:
         logger.error(f"Error while creating the graph: {e}")
-        return GraphReportResponse()
+        return None
