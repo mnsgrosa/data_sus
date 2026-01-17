@@ -1,10 +1,23 @@
+from typing import Annotated, Any, Dict, List, Optional, Tuple
+
 import httpx
+import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-from typing import List, Tuple, Annotated, Optional, Dict, Any
 from langchain_core.tools import tool
+
 from src.utils.logger import MainLogger
-from src.agentic.agent_tools.tools_helper import extract_data_dictionary
+
+from .tools_utils.db.data_storage import SragDb
+from .tools_utils.tools_helper import fetch_data
+from .tools_utils.tools_schemas import (
+    GraphReportRequest,
+    GraphReportResponse,
+    StatReportRequest,
+    StatReportResponse,
+    SummarizerRequest,
+    SummarizerResponse,
+)
 
 logger = MainLogger(__name__)
 BASE_URL = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024"
@@ -12,51 +25,15 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
 }
 
+
 def get_db():
     return SragDb()
 
-@tool
-def store_csvs(years: Optional[List[int]] = None) -> Dict[str, Any]:
-    """
-    Get the 'srag' dataset from the datasus website about acute respiratory diseases including covid-19 
-    and stores the data into de sqlite database.
-    
-    Whenever the user asks to get data, fetch data, store data it refers to this function
-    ARGS:
-        years: Optional[List[int]]: Year chosen by the user. the options are [2021, 2022, 2023, 2024, 2025]
-        defaults to None, if None it will fetch all the years available
-    RETURNS:
-        pandas dataframe as dict.
-    """
-    logger.info("Starting the csv reader tool")
-    with httpx.Client() as client:
-        response = client.post('http://api:8000/store', json = {"years": years if years else []}, headers = headers, timeout=30000.0)
-        response.raise_for_status()
-        if response.status_code != 200:
-            logger.error(f"Failed to fetch data: {response.text}")
-            return {"status": "error", "message": "Failed to fetch data"}
-        logger.info("Successfully fetched and stored the data")
-    return response.json()
-        
-@tool
-def get_data_dict() -> Dict[str, Any]:
-    """
-    Reads the data dictionary for the 'srag' dataset.
 
-    RETURNS:
-        A dictionary representing the data info.
-    """
-    logger.info("Starting to read the data dictionary")
-    url = "https://opendatasus.saude.gov.br/dataset/39a4995f-4a6e-440f-8c8f-b00c81fae0d0/resource/3135ac9c-2019-4989-a893-2ed50ebd8e68/download/dicionario-de-dados-2019-a-2025.pdf"
-    logger.info("Extracting the structure from pdf")
-
-    structs = extract_data_dictionary(url)
-    
-    logger.info("Successfully read the data dictionary")
-    return structs
-
-@tool
-def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, Dict[str, Any]]:
+@tool(response_format=SummarizerResponse | None)
+def summarize_numerical_data(
+    summary_request: SummarizerRequest,
+) -> SummarizerResponse | None:
     """
     Summarizes the data in the specified column of the DataFrame.
 
@@ -67,25 +44,57 @@ def summarize_numerical_data(columns: List[str], years: List[int]) -> Dict[str, 
     RETURNS:
         Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
     """
-    logger.info(f"Starting to summarize data from: {columns}")
-    with httpx.Client() as client:
-        response = client.post('http://api:8000/summary', headers = headers, data = {"columns": columns, "years": years}, timeout=30000.0)
-        response.raise_for_status()
-        if response.status_code != 200:
-            logger.error(f"Failed to summarize data: {response.text}")
-            return {"status": "error", "message": "Failed to summarize data"}
-        logger.info("Successfully summarized the data")
-    ans = response.json()
-    return ans.get("summaries", {})
+    valid_years = [2021, 2022, 2023, 2024, 2025]
+    valid_columns = [
+        "EVOLUCAO",
+        "UTI",
+        "DT_NOTIFIC",
+        "SG_UF_NOT",
+        "VACINA_COV",
+        "HOSPITAL",
+        "DT_SIN_PRI",
+        "DT_ENTUTI",
+        "DT_SAIDUTI",
+    ]
+    if not set(summary_request.years).issubset(valid_years):
+        logger.error("At least one of requested years isn't available")
+        return None
+    if not set(summary_request).issubset(valid_columns):
+        logger.error("At least one of requested columns doesn't exist")
+        return None
 
-@tool
+    db = get_db()
+
+    logger.info(f"Starting data summary tool for: {summary_request}")
+    returnable_data = {}
+
+    columns = [column.upper() for column in summary_request.columns]
+
+    for year in summary_request.years:
+        year_data = db.get_data(year)
+        if year_data is None:
+            year_data = fetch_data(year)
+        if year_data:
+            year_data.fillna(-1, inplace=True)
+            column_dict = {}
+            for column in columns:
+                year_dict = {}
+                response = pd.Categorical(year_data[column], ordered=True)
+                year_dict["median"] = np.median(response.codes)
+                year_dict["freq"] = year_data[column].value_counts().to_numpy().tolist()
+                column_dict[column] = year_dict
+            returnable_data[year] = column_dict
+    if not returnable_data:
+        logger.info("No data was retrieved")
+        return None
+    logger.info(f"Data retrieved from:{returnable_data.keys()}")
+    return SummarizerResponse(**returnable_data)
+
+
+@tool(response_format=StatReportResponse | None)
 def generate_statistical_report(
-    year: int,
-    starting_month: int,
-    ending_month: int,
-    state: Optional[str] = 'all',
-    granularity: str = 'ME'
-) -> Dict[str, Any]:
+    request: StatReportRequest,
+) -> StatReportResponse | None:
     """
     Generates a statistical report about the following topics:
             - Number of deaths and death rate
@@ -104,25 +113,104 @@ def generate_statistical_report(
             RETURNS:
                 A summary of the data of total cases from that year
     """
-    logger.info("Starting statistical report generation")
-    with httpx.Client() as client:
-        post_data = {
-            "year": year,
-            "starting_month": starting_month,
-            "ending_month": ending_month,
-            "state": state,
-            "granularity": granularity
+    logger.info(f"Starting report generation for: {request}")
+    if request.year not in [2021, 2022, 2023, 2024, 2025]:
+        return {
+            "death_count": 0,
+            "death_rate": 0.0,
+            "total_cases": 0,
+            "cases_hospitalized": 0,
+            "perc_uti": 0.0,
+            "perc_vaccinated": 0.0,
         }
-        response = client.get('http://api:8000/report', data = post_data, headers = headers, timeout=30000.0)
-        response.raise_for_status()
-        if response.status_code != 200:
-            logger.error(f"Failed to generate report: {response.text}")
-            return {"status": "error", "message": "Failed to generate report"}
-        logger.info("Successfully generated the report")
-        
-        
-@tool
-def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 'ME', state: Optional[str] = None) -> Dict[str, Any]:
+
+    if request.granularity not in ["D", "ME", "SE", "M"]:
+        return {
+            "death_count": 0,
+            "death_rate": 0.0,
+            "total_cases": 0,
+            "cases_hospitalized": 0,
+            "perc_uti": 0.0,
+            "perc_vaccinated": 0.0,
+        }
+
+    report = {}
+
+    db = get_db()
+
+    data = db.get_data(request.year)
+    if data is None:
+        data = fetch_data(request.year)
+    if data is None or data.empty:
+        return {
+            "status": "error",
+            "report": "No data found for the specified year.",
+            "death_count": 0,
+            "death_rate": 0.0,
+            "total_cases": 0,
+            "cases_hospitalized": 0,
+            "perc_uti": 0.0,
+            "perc_vaccinated": 0.0,
+        }
+
+    if request.state and request.state.lower() != "all":
+        data = data[data["SG_UF_NOT"] == request.state.upper()]
+
+    try:
+        year_int = int(request.year)
+
+        data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"])
+        mask = (
+            (data["DT_NOTIFIC"].dt.year == year_int)
+            & (data["DT_NOTIFIC"].dt.month >= request.starting_month)
+            & (data["DT_NOTIFIC"].dt.month <= request.ending_month)
+        )
+
+        filtered_data = data[mask]
+
+        logger.info(filtered_data)
+
+        death_count = int(filtered_data[filtered_data["EVOLUCAO"] == 2].shape[0])
+        total_count = int(filtered_data.shape[0])
+        death_rate = (death_count / total_count) * 100 if total_count > 0 else 0
+
+        report["death_count"] = int(death_count)
+        report["death_rate"] = float(death_rate)
+        report["total_cases"] = int(total_count)
+
+        logger.info(f"{death_count}, {death_rate}, {total_count}")
+
+        casos_internados = filtered_data[filtered_data["HOSPITAL"] == 1].shape[0]
+        report["cases_hospitalized"] = int(casos_internados)
+
+        logger.info(f"{casos_internados}")
+
+        uti_count = filtered_data[filtered_data["UTI"] == 1].shape[0]
+        perc_uti = (uti_count / total_count) * 100 if total_count > 0 else 0
+        report["perc_uti"] = perc_uti
+
+        logger.info(f"{perc_uti}")
+
+        vaccinated_count = filtered_data[filtered_data["VACINA_COV"] == 1].shape[0]
+        perc_vaccinated = (
+            (vaccinated_count / total_count) * 100 if total_count > 0 else 0
+        )
+        report["perc_vaccinated"] = float(perc_vaccinated)
+
+        logger.info(f"{perc_vaccinated}")
+
+        logger.info(f"{perc_uti}")
+
+        return StatReportResponse(**report)
+    except Exception as e:
+        logger.error(f"Error converting data: {e}")
+        return None
+
+
+@tool(response_format=GraphReportResponse | None)
+def generate_temporal_graphical_report(
+    request: GraphReportRequest,
+) -> GraphReportResponse | None:
     """
     Generates a graphical report about the influenza cases in the selected state if not provided state defaults to None,
 
@@ -133,17 +221,81 @@ def generate_temporal_graphical_report(year: Optional[int],  granularity: str = 
     RETURNS:
         A dictionary with the figure_id, description from the plot and the data points
     """
-    logger.info("Starting graphical report generation")
-    with httpx.Client() as client:
-        post_data = {
-            "year": year if year else 2025,
-            "granularity": granularity,
-            "state": state if state else None
+    if request.year not in [2021, 2022, 2023, 2024, 2025]:
+        return {
+            "x": [],
+            "y": [],
+            "total_points": 0,
+            "state": request.state if request.state else "all",
+            "granularity": request.granularity,
         }
-        response = client.post('http://api:8000/graphical_report', json = post_data, headers = headers, timeout=30000.0)
-        response.raise_for_status()
-        if response.status_code != 200:
-            logger.error(f"Failed to generate graphical report: {response.text}")
-            return {"status": "error", "message": "Failed to generate graphical report"}
-        logger.info("Successfully generated the graphical report")
-    return response.json()
+
+    if request.granularity not in ["D", "ME", "SE", "M"]:
+        return {
+            "x": [],
+            "y": [],
+            "total_points": 0,
+            "state": request.state if request.state else "all",
+            "granularity": request.granularity,
+        }
+
+    db = get_db()
+
+    data = db.get_data(request.year)
+    if data is None:
+        data = fetch_data(request.year)
+
+    if data is None or data.empty:
+        return GraphReportResponse(
+            **{
+                "x": [],
+                "y": [],
+                "total_points": 0,
+                "state": request.state if request.state else "all",
+                "granularity": request.granularity,
+            }
+        )
+
+    try:
+        logger.info("Grouping the data")
+        grouped = (
+            data.fillna(0).groupby(by=["DT_NOTIFIC", "SG_UF_NOT"]).count().reset_index()
+        )
+        grouped["DT_NOTIFIC"] = pd.to_datetime(grouped["DT_NOTIFIC"])
+        if request.state:
+            grouped = (
+                grouped[grouped["SG_UF_NOT"] == request.state]
+                .set_index("DT_NOTIFIC")
+                .resample(request.granularity)
+                .count()
+                .reset_index()
+            )
+        else:
+            grouped = (
+                grouped.set_index("DT_NOTIFIC")
+                .resample(request.granularity)
+                .count()
+                .reset_index()
+            )
+    except Exception as e:
+        logger.error(f"Error grouping data: {e}")
+        return GraphReportResponse()
+
+    try:
+        logger.info("Creating the graph")
+
+        x = grouped["DT_NOTIFIC"].dt.strftime("%Y-%m-%d").tolist()
+        y = grouped["year"].tolist()
+
+        return GraphReportResponse(
+            {
+                "x": x,
+                "y": y,
+                "total_points": len(x),
+                "state": request.state or "all",
+                "granularity": request.granularity,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error while creating the graph: {e}")
+        return GraphReportResponse()
