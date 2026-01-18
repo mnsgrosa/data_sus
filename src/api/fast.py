@@ -8,15 +8,17 @@ from fastapi import FastAPI
 from src.utils.logger import MainLogger
 
 from ..agentic.agent import StatisticalAgent
+from ..agentic.agent_schema.main_schema import AgentResponse
 from .schemas import PromptResponse
 
 app = FastAPI()
 logger = MainLogger(__name__)
 
+agent = StatisticalAgent()
 
-@app.post("/prompt", response_model=PromptResponse)
-def prompt_agent(prompt: str) -> str:
-    agent = StatisticalAgent()
+
+@app.post("/prompt", response_model=AgentResponse)
+def prompt_agent(prompt: str) -> AgentResponse:
     ans = agent.run(prompt)
     return ans
 

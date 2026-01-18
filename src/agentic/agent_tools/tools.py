@@ -38,11 +38,12 @@ def summarize_numerical_data(
     Summarizes the data in the specified column of the DataFrame.
 
     ARGS:
+        SummarizerRequest[
         columns: List[str]: A list of columns to summarize.
         years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
-
+        ]
     RETURNS:
-        Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
+        SummarizerResponse[year[str], Dict[column[str], int | float]] -> Dict with the informations about the categorical variables from the desired column and years
     """
     valid_years = [2021, 2022, 2023, 2024, 2025]
     valid_columns = [
@@ -106,10 +107,12 @@ def generate_statistical_report(
             the user will ask the year and month to month analysis
 
             ARGS:
+                request: StatReportRequest[
                 year: Year that im looking into
                 state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
                 starting_month: str: The starting month that the user asked for.
                 ending_month: str: The ending month that the user asked for.
+                ]
             RETURNS:
                 A summary of the data of total cases from that year
     """
@@ -192,9 +195,11 @@ def generate_temporal_graphical_report(
     Generates a graphical report about the influenza cases in the selected state if not provided state defaults to None,
 
     ARGS:
+        GraphReportRequest[
         state: str: Brazillian state options with the two first carachters like: 'PE', 'CE', 'SP'
         granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual). Defaults to 'D'
         year: year that the user prompted, if not provided default to 2025
+        ]
     RETURNS:
         A dictionary with the figure_id, description from the plot and the data points
     """

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, TypedDict
 import numpy as np
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, Field, model_serializer
 
 
 class ReportInfo(TypedDict):
@@ -55,3 +55,11 @@ class JsonEncoder(BaseModel):
                 return str(obj)
 
         return obj
+
+
+class AgentResponse(BaseModel):
+    content: str = Field(..., description="LLM generated output about tool calling")
+    data: Dict[str, int] = Field(
+        ..., description="Datapoints outputed by tools if any tool was called"
+    )
+    tool_name: str = Field(..., description="Name of tool used")

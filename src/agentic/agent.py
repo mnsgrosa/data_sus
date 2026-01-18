@@ -14,7 +14,7 @@ from src.agentic.agent_tools.tools import (
 )
 from src.utils.logger import MainLogger
 
-from .agent_schema.main_schema import JsonEncoder, ReportInfo
+from .agent_schema.main_schema import AgentResponse, JsonEncoder, ReportInfo
 
 load_dotenv()
 
@@ -32,8 +32,6 @@ class StatisticalAgent(MainLogger):
             "figures_dict": [],
         }
         self.tools = [
-            store_csvs,
-            get_data_dict,
             summarize_numerical_data,
             generate_statistical_report,
             generate_temporal_graphical_report,
@@ -44,7 +42,7 @@ class StatisticalAgent(MainLogger):
         self.tool_map = {tool.name: tool for tool in self.tools}
 
         self.llm_tool_caller = ChatGoogleGenerativeAI(
-            model="gemini-3-pro", temperature=0.2, max_tokens=None, max_retries=2
+            model="gemini-3-pro", temperature=0.2, max_tokens=None, max_retries=2, output_format = AgentResponse
         )
 
         self.llm_tool_caller = self.llm_tool_caller.bind_tools(self.tools)
@@ -106,7 +104,7 @@ class StatisticalAgent(MainLogger):
                     tool_call_id=tool_id,
                     name=tool_name,
                 )
-                tool_messages.append(tool_message)
+                tool_messages.append(tool_message) -> GraphReportResponse
 
                 self.logger.info(f"Tool {tool_name} executed successfully")
 
@@ -144,37 +142,23 @@ class StatisticalAgent(MainLogger):
         textual_description_of_tool = """
             The available columns for the data are: EVOLUCAO, UTI, DT_NOTIFIC, SG_UF_NOT, VACINA_COV, HOSPITAL, SEM_NOT
             RULES:
-            - Use the provided tools to fetch and manipulate data
+            - Use the provided tools to fetch, generate graphical reports and a statistical summary
             - Always interact with the output from the last tool call
-            - You can not make up data, if you dont know the answer just say you dont know
-            store_csvs(year: str) -> Dict[str, Any]: Fetches and stores the 'srag' dataset into the database.
+            - You can not make up data, if you don't know the answer just say you dont know
 
-            get_data_dict() -> Dict[str, Any]: Retrieves the data dictionary for the 'srag' dataset. When the user wants to talk about anything about the columns
-            consult this dict, it will guide you throughout the questions about the columns
-            Summarizes the data in the specified column of the DataFrame.
+            TOOLS:
+            1) generate_statistical_report (
+            request: SummarizerRequest(Dict with keys: years:List[int], columns[str])
+            ) -> SummarizerResponse:
+            DESCRIPTION:
+                Generates a statistical report about the following topics:
+                - Number of deaths and death rate
+                - Number of new cases
+                - Number of cases in UTI
+                - Number of hospitalized cases
+                - Percentage of citizens that got vaccinated
 
-            ARGS:
-                columns: List[str]: A list of columns to summarize.
-                years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
-
-            RETURNS:
-                Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
-
-            def generate_statistical_report(
-                year: str,
-                starting_month: int,
-                ending_month: int,
-                state: Optional[str] = 'all',
-                granularity: str = 'D'
-                ) -> Dict[str, Any]:
-            Generates a statistical report about the following topics:
-            - Number of deaths and death rate
-            - Number of new cases
-            - Number of cases in UTI
-            - Number of hospitalized cases
-            - Percentage of citizens that got vaccinated
-
-            the user will ask the year and month to month analysis
+                the user will ask the year and month to month analysis
 
             ARGS:
                 year: Year that im looking into
@@ -184,17 +168,51 @@ class StatisticalAgent(MainLogger):
             RETURNS:
                 A summary of the data of total cases from that year
 
-            generate_temporal_graphical_report(state: Optional[str], year: Optional[str], granularity: str) -> Dict[str, Any]:
+            2)generate_statistical_report(
+                request: StatReportRequest[
+                    year: int,
+                    starting_month: int,
+                    ending_month: int,
+                    state: str,
+                    granularity: str
+                ]
+            )
+            DESCRIPTION:
+            Generates a statistical report about the following topics:
+                    - Number of deaths and death rate
+                    - Number of new cases
+                    - Number of cases in UTI
+                    - Number of hospitalized cases
+                    - Percentage of citizens that got vaccinated
+
+                    the user will ask the year and month to month analysis
+
+                    ARGS:
+                        request: StatReportRequest[
+                        year: Year that im looking into
+                        state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
+                        starting_month: str: The starting month that the user asked for.
+                        ending_month: str: The ending month that the user asked for.
+                        ]
+                    RETURNS:
+                        A summary of the data of total cases from that year
+
+            generate_temporal_graphical_report(
+            GraphReportRequest[
+                year: Optional[int] = None
+                granularity: str = Field(...)
+                state: Optional[str] = None
+            ]):
             Generates a graphical report about influenza cases.
 
-          Summarizes the data in the specified column of the DataFrame.
+            Summarizes the data in the specified column of the DataFrame.
 
-    ARGS:
-        columns: List[str]: A list of columns to summarize.
-        years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
+            ARGS:
+                columns: List[str]: A list of columns to summarize.
+                years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
 
-    RETURNS:
-        Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
+            RETURNS:
+                Dict[str, Dict[str, Any]] -> Dict with the informations about the categorical variables from the desired column and years
         """
 
         if len(messages) == 1 or not isinstance(messages[0], SystemMessage):
@@ -270,7 +288,7 @@ class StatisticalAgent(MainLogger):
             "struct": struct,
         }
 
-    def run(self, user_message: str):
+    def run(self, user_message: str) -> AgentResponse:
         prompt = HumanMessage(content=user_message)
 
         if self.initial_state["messages_dict"] is None:
