@@ -67,8 +67,11 @@ def summarize_numerical_data(years: List[int], columns: List[str]) -> dict | Non
 
     for year in years:
         year_data = db.get_data(year)
-        if year_data is None:
-            year_data = fetch_data([year])
+        logger.info(f"Year data: {year_data}")
+        if year_data.empty:
+            fetch_data([year])
+            year_data = db.get_data(year)
+            logger.info(f"Fetched from function:{year_data}")
         if year_data is not None and not year_data.empty:
             year_data.fillna(-1, inplace=True)
             column_dict = {}
@@ -84,6 +87,7 @@ def summarize_numerical_data(years: List[int], columns: List[str]) -> dict | Non
         logger.info("No data was retrieved")
         return None
     logger.info(f"Data retrieved from:{returnable_data.keys()}")
+    logger.info(f"Data:{returnable_data}")
     return returnable_data
 
 
@@ -97,122 +101,122 @@ def generate_statistical_report(
 ) -> dict | None:
     """
     Generates a statistical report about the following topics:
-            - Number of deaths and death rate
-            - Number of new cases
-            - Number of cases in UTI
-            - Number of hospitalized cases
-            - Percentage of citizens that got vaccinated
+        - Number of deaths and death rate
+        - Number of new cases
+        - Number of cases in UTI
+        - Number of hospitalized cases
+        - Percentage of citizens that got vaccinated
 
-            the user will ask the year and month to month analysis
+    ARGS:
+        year: Year that im looking into
+        state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
+        starting_month: str: The starting month that the user asked for.
+        ending_month: str: The ending month that the user asked for.
+        granularity: Optional[str]: Time granularity (not currently used in logic)
 
-            ARGS:
-                request: StatReportRequest[
-                year: Year that im looking into
-                state: Optional[str]: The state to filter the data by. If None, no filtering is applied.
-                starting_month: str: The starting month that the user asked for.
-                ending_month: str: The ending month that the user asked for.
-                ]
-            RETURNS:
-                A summary of the data of total cases from that year
+    RETURNS:
+        A summary of the data of total cases from that year
     """
+    # Validate inputs
     if year not in [2021, 2022, 2023, 2024, 2025]:
         return {"error": f"Year {year} is not available. Try 2021-2025."}
 
     if granularity not in ["D", "ME", "SE", "M"]:
         return {"error": f"Invalid granularity '{granularity}'."}
 
-    report = {}
+    # Validate month range
+    if not (1 <= starting_month <= 12 and 1 <= ending_month <= 12):
+        return {"error": "Months must be between 1 and 12."}
 
-    db = SragDb()
-    df = db.get_data(year)
+    if starting_month > ending_month:
+        return {"error": "starting_month cannot be greater than ending_month."}
 
-    if df is None or df.empty:
-        print(f"No data found for {year}. Triggering fetch...")  # or use logger
+    # Get or fetch data (single retrieval)
+    db = get_db()
+    data = db.get_data(year)
 
-        # Call the scraper we just fixed
-        # Note: fetch_data expects a list of ints
-        fetch_result = fetch_data([year])
+    if data is None or data.empty:
+        logger.info(f"No data found for {year}. Triggering fetch...")
+        fetch_data([year])
+        fetch_result = db.get_data(year)
 
         if fetch_result is None:
             return {
                 "error": f"Could not fetch data for year {year} from external source."
             }
 
-        # 3. Retry getting data after fetch
-        df = db.get_data(year)
-        if df is None or df.empty:
-            return {
-                "error": "Fetched data but database is still returning empty. Check insertion logic."
-            }
+        # Retry after fetch
+        data = db.get_data(year)
+        if data is None or data.empty:
+            return {"error": f"Fetched data but database still empty for year {year}."}
 
-    data = db.get_data(year)
-    if data is None or data.empty:
-        return {"error": f"No data available in the database for year {year}."}
+    logger.info(f"Found data:{data}")
 
+    # Filter by state if specified
     if state and state.lower() != "all":
-        data = data[data["SG_UF_NOT"] == state.upper()]
+        state_upper = state.upper()
+        data = data[data["SG_UF_NOT"] == state_upper]
         if data.empty:
             return {"error": f"No data found for state {state} in {year}."}
 
-    if state and state.lower() != "all":
-        data = data[data["SG_UF_NOT"] == state.upper()]
-
-    df_state = df[df["SG_UF_NOT"] == state]
-
-    if df_state.empty:
-        return {
-            "error": f"Data available for {year}, but no records found for state {state}."
-        }
-
     try:
-        year_int = int(year)
+        # Convert and filter by date range
+        data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"], errors="coerce")
 
-        data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"])
+        # Remove rows with invalid dates
+        data = data.dropna(subset=["DT_NOTIFIC"])
+
         mask = (
-            (data["DT_NOTIFIC"].dt.year == year_int)
+            (data["DT_NOTIFIC"].dt.year == year)
             & (data["DT_NOTIFIC"].dt.month >= starting_month)
             & (data["DT_NOTIFIC"].dt.month <= ending_month)
         )
 
         filtered_data = data[mask]
 
-        logger.info(filtered_data)
+        if filtered_data.empty:
+            logger.error("Filetered data is empty")
+            return {
+                "error": f"No data found for months {starting_month}-{ending_month} in {year}."
+            }
 
-        death_count = int(filtered_data[filtered_data["EVOLUCAO"] == 2].shape[0])
-        total_count = int(filtered_data.shape[0])
-        death_rate = (death_count / total_count) * 100 if total_count > 0 else 0
+        logger.info(f"Filtered data shape: {filtered_data.shape}")
 
-        report["death_count"] = int(death_count)
-        report["death_rate"] = float(death_rate)
-        report["total_cases"] = int(total_count)
+        # Calculate metrics
+        total_count = len(filtered_data)
+        death_count = int((filtered_data["EVOLUCAO"] == 2).sum())
+        death_rate = (death_count / total_count * 100) if total_count > 0 else 0.0
 
-        logger.info(f"{death_count}, {death_rate}, {total_count}")
+        cases_hospitalized = int((filtered_data["HOSPITAL"] == 1).sum())
 
-        casos_internados = filtered_data[filtered_data["HOSPITAL"] == 1].shape[0]
-        report["cases_hospitalized"] = int(casos_internados)
+        uti_count = int((filtered_data["UTI"] == 1).sum())
+        perc_uti = (uti_count / total_count * 100) if total_count > 0 else 0.0
 
-        logger.info(f"{casos_internados}")
-
-        uti_count = filtered_data[filtered_data["UTI"] == 1].shape[0]
-        perc_uti = (uti_count / total_count) * 100 if total_count > 0 else 0
-        report["perc_uti"] = perc_uti
-
-        logger.info(f"{perc_uti}")
-
-        vaccinated_count = filtered_data[filtered_data["VACINA_COV"] == 1].shape[0]
+        vaccinated_count = int((filtered_data["VACINA_COV"] == 1).sum())
         perc_vaccinated = (
-            (vaccinated_count / total_count) * 100 if total_count > 0 else 0
+            (vaccinated_count / total_count * 100) if total_count > 0 else 0.0
         )
-        report["perc_vaccinated"] = float(perc_vaccinated)
 
-        logger.info(f"{perc_vaccinated}")
+        report = {
+            "year": year,
+            "state": state or "all",
+            "month_range": f"{starting_month}-{ending_month}",
+            "total_cases": total_count,
+            "death_count": death_count,
+            "death_rate": round(death_rate, 2),
+            "cases_hospitalized": cases_hospitalized,
+            "uti_count": uti_count,
+            "perc_uti": round(perc_uti, 2),
+            "vaccinated_count": vaccinated_count,
+            "perc_vaccinated": round(perc_vaccinated, 2),
+        }
 
-        logger.info(f"{perc_uti}")
-
+        logger.info(f"Report generated successfully: {report}")
         return report
+
     except Exception as e:
-        logger.error(f"Error converting data: {e}")
-        return None
+        logger.error(f"Error generating report: {e}")
+        return {"error": f"Failed to generate report: {str(e)}"}
 
 
 @tool
@@ -239,7 +243,8 @@ def generate_graphical_report(
 
     data = db.get_data(year)
     if data is None:
-        data = fetch_data([year])
+        fetch_data([year])
+        data.get_data(year)
 
     if data is None or data.empty:
         return None

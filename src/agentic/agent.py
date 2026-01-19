@@ -28,6 +28,7 @@ class StatisticalAgent(MainLogger):
             "summary": [],
             "stat_report": [],
             "figures": [],
+            "data": {},
         }
 
         self.tools = [
@@ -51,12 +52,15 @@ class StatisticalAgent(MainLogger):
     def _init_graph(self):
         self.graph.add_node("assistant", self.assistant)
         self.graph.add_node("tools", self.call_tools)
+        self.graph.add_node("process_results", self.process_tool_results)
+
         self.graph.set_entry_point("assistant")
         self.graph.add_edge(START, "assistant")
         self.graph.add_conditional_edges(
             "assistant", self.should_continue, {"tools": "tools", "end": END}
         )
-        self.graph.add_edge("tools", "assistant")
+        self.graph.add_edge("tools", "process_results")
+        self.graph.add_edge("process_results", "assistant")
         self.react_graph = self.graph.compile()
 
     def _serialize_for_json(self, obj: Any) -> Any:
@@ -219,7 +223,11 @@ class StatisticalAgent(MainLogger):
             sys_msg = SystemMessage(content=textual_description_of_tool)
             messages = [sys_msg] + messages
 
+        self.info(f"THE MESSAGE PASSED TO AGENT IS:{messages}")
+
         response = self.llm_tool_caller.invoke(messages)
+
+        self.info(f"RESPONSE:{response}")
 
         return {"messages": messages + [response]}
 
@@ -230,10 +238,13 @@ class StatisticalAgent(MainLogger):
         report = state.get("report", [])
         summary = state.get("summary", [])
         struct = state.get("struct", {})
+        data = state.get("data", {})
 
         for msg in reversed(messages[-10:]):
             if hasattr(msg, "type") and msg.type == "tool":
                 result = msg.content
+
+                self.info(f"RESULT CONTENT: {result}")
 
                 if isinstance(result, str):
                     try:
@@ -248,42 +259,29 @@ class StatisticalAgent(MainLogger):
                         continue
 
                 if isinstance(result, dict):
-                    # Handle figure results - check for figure_id instead of figure object
-                    if "figure_id" in result:
-                        # Check if this figure is already in the list
-                        existing_ids = [
-                            f.get("figure_id") for f in figures if isinstance(f, dict)
-                        ]
-                        if result["figure_id"] not in existing_ids:
-                            # Store the complete result (without the large figure object)
-                            figure_data = {
-                                "figure_id": result["figure_id"],
-                                "description": result.get("description", ""),
-                                "data_points": result.get("data_points", []),
-                                "total_points": result.get("total_points", 0),
-                                "state": result.get("state", "all"),
-                                "year": result.get("year", ""),
-                                "granularity": result.get("granularity", "D"),
-                                "figure_html": result.get("figure_html", ""),
-                            }
-                            figures.append(figure_data)
-                            self.logger.info(
-                                f"Added figure: {result['figure_id']} with {result.get('total_points', 0)} data points"
-                            )
+                    self.info("THIS IS A DICT!!!")
+                    if "data" in result and result["data"]:
+                        data.update(result["data"])
+                        self.info(
+                            f"Added data with keys: {list(result['data'].keys())}"
+                        )
 
-                    # Handle report results
-                    if "report" in result:
-                        report.append(result["report"])
-                        self.logger.info(f"Added report")
+                    if "total_cases" in result and result["total_cases"]:
+                        self.info("Report detected")
+                        data.update(result)
+                        self.info(f"Report added succesfully: {result}")
 
-                    # Handle summary statistics
+                    if "x" in result and "y" in result and result["x"]:
+                        self.info("Data points detected")
+                        data.update(result)
+                        self.info(f"Data points updated succesfully: {result}")
+
                     if any(
                         k in result for k in ["mean", "median", "std", "min", "max"]
                     ):
                         summary.append(result)
                         self.logger.info(f"Added summary stats: {list(result.keys())}")
 
-                    # Handle struct/data dictionary
                     if any(k.startswith("_") for k in result.keys()):
                         struct = result
                         self.logger.info(f"Added struct with {len(result)} keys")
@@ -293,6 +291,7 @@ class StatisticalAgent(MainLogger):
             "report": report,
             "summary": summary,
             "struct": struct,
+            "data": data,
         }
 
     def run(self, user_message: str, initial_state: Optional[Dict[str, Any]] = None):
@@ -303,10 +302,13 @@ class StatisticalAgent(MainLogger):
             initial_state = {
                 "messages": [],
                 "report": [],
-                # ... initialize other keys ...
+                "struct": {},
+                "summary": [],
+                "stat_report": [],
+                "figures": [],
+                "data": {},
             }
 
-        # Ensure we append the human message correctly
         initial_state["messages"].append(HumanMessage(content=user_message))
 
         # Invoke graph

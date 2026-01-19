@@ -14,6 +14,7 @@ class ReportInfo(TypedDict):
     summary: List[Dict[str, Any]]
     stat_report: List[Dict[str, Any]]
     figures: List[Any]
+    data: Dict[str, Any]
 
 
 class JsonEncoder(BaseModel):

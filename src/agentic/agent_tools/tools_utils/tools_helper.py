@@ -15,8 +15,35 @@ logger = MainLogger()
 BASE_URL = "https://dadosabertos.saude.gov.br"
 
 
+def find_correct_soup(dataset_link: str, years: list[str]):
+    with httpx.Client() as client:
+        response = client.get(dataset_link, timeout=300)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    title = (
+        soup.find("h1", class_="text-weight-bold mt-3").text.lower() if soup else None
+    )
+
+    if title and "ficha" in title:
+        return None
+
+    if title and "csv" in title:
+        match = [title for year in years if year in title]
+        return soup.find_all("a") if match else None
+
+
+def find_s3(soup):
+    s3_links = [
+        link["href"] for link in soup if link.get("href") and "s3" in link["href"]
+    ]
+    return s3_links[0]
+
+
 def fetch_data(request: List[int]):
     logger.info(f"Starting data fetch for: {request}")
+
+    str_years = list(map(str, request))
+
     with httpx.Client() as client:
         response = client.get(
             "https://dadosabertos.saude.gov.br/dataset/srag-2021-a-2024",
@@ -24,108 +51,48 @@ def fetch_data(request: List[int]):
         )
         response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
-    dropdown = soup.find_all("a", class_="br-button-primary")
+    buttons = soup.find_all("a", class_="br-button primary")
 
-    if not dropdown:
+    logger.info(f"Found candidates:{buttons}")
+
+    if not buttons:
         logger.error(
             "Scraper found no items with class 'dropdown-item'. Check website structure."
         )
         return None
 
-    items = [BASE_URL + item["href"][0] for item in dropdown] if dropdown else []
-    links = []
+    links = [
+        BASE_URL + item["href"]
+        for item in buttons
+        if item.get("href") and "dataset" in item["href"]
+    ]
 
-    for item in items:
-        with httpx.Client() as client:
-            response = client.get(
-                item,
-                timeout=30000.0,
-            )
-        response.raise_for_status()
-        new_soup = BeautifulSoup(response.text, "html.parser")
-        links = new_soup.find_all("a", class_="br-button-primary")
-        links = [link if "s3" in links else None for link in links] if dropdown else []
+    logger.info(f"Links found:{links}")
+
+    s3_links = []
+
+    for link in links:
+        link_soup = find_correct_soup(link, str_years)
+        if link_soup:
+            s3_links.append(find_s3(link_soup))
+
+    if s3_links is None:
+        logger.info("No s3 link found")
+        return None
+
+    logger.info(f"S3 links found:{s3_links}")
 
     db = SragDb()
     processed_dfs = []
 
-    if request:
-        found_any = False
-        logger.info(f"Fetching data for years: {request}")
-        for link in items:
-            if "s3" in link:
-                s3_link = link
-                match = re.search(r"(\d{4})", link)
-                if not match:
-                    continue
-
-                option = match.group(0)
-
-                if int(option) in request:
-                    try:
-                        logger.info(f"Processing year: {option}")
-                        df = pd.read_csv(s3_link, sep=";", low_memory=False)
-                        # ... (column filtering remains the same) ...
-
-                        df["year"] = [int(option)] * df.shape[0]
-
-                        # Insert data
-                        db.insert(df.to_dict(orient="records"))
-
-                        processed_dfs.append(df)
-                        found_any = True
-
-                        # FIX 2: Do NOT return here. Let the loop continue for other years.
-                    except Exception as e:
-                        logger.error(f"Error processing year {option}: {e}")
-
-        if not found_any:
-            logger.error(f"No matching links found for requested years: {request}")
-            return None
-
-        # Return the last df or a concatenation, depending on your agent's needs
-        return pd.concat(processed_dfs) if processed_dfs else None
-
-
-def extract_data_dictionary(url: str):
-    logger = MainLogger(__name__)
-    tables = (
-        DocumentConverter().convert(url).document.export_to_dict().get("tables", [])
-    )
-
-    colunas, caracteristicas, tipos = [], [], []
-    tipos_colunas = ["varchar", "date", "number"]
-
-    for table in tables:
-        for conteudo in table["data"]["table_cells"]:
-            texto = conteudo.get("text", "")
-            if texto in [
-                "EVOLUCAO",
-                "UTI",
-                "DT_NOTIFIC",
-                "SEM_NOT",
-                "SG_UF_NOT",
-                "VACINA_COV",
-                "HOSPITAL",
-                "SEM_NOT",
-            ]:
-                colunas.append(texto)
-            elif (
-                tipos_colunas[0] in texto.lower()
-                or tipos_colunas[1] in texto.lower()
-                or tipos_colunas[2] in texto.lower()
-            ):
-                tipos.append(texto)
-            elif "campo" in texto.lower():
-                caracteristicas.append(texto)
-        logger.info(f"{texto}")
-
-    structs = {}
-    for i in range(len(colunas)):
-        structs[colunas[i]] = {
-            "tipo": tipos[i] if i < len(tipos) else None,
-            "caracteristicas": caracteristicas[i] if i < len(caracteristicas) else None,
-        }
-
-    logger.info(f"{structs}")
-    return structs
+    for s3 in s3_links:
+        year = s3.split("/")[5]
+        logger.info(f"Processing: {s3} from {year}")
+        df = pd.read_csv(s3, sep=";", low_memory=False)
+        df["year"] = [year] * df.shape[0]
+        insertion_result = db.insert(df.to_dict(orient="records"))
+        if insertion_result:
+            logger.info(f"Succesfully inserted: {year}")
+            processed_dfs.append(year)
+        else:
+            logger.info(f"Couldn't insert: {year}")
