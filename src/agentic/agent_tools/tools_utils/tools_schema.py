@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from pydantic import BaseModel, Field, Optional
+from pydantic import BaseModel, Field
 
 
 class SummarizerRequest(BaseModel):
@@ -29,7 +29,7 @@ class StatReportRequest(BaseModel):
     ending_month: int = Field(
         ..., description="Ending month for report generation from prompted year"
     )
-    state: str = Field(..., description="State to be analized")
+    state: Optional[str]
     granularity: str = Field(..., description="Signature for granulairity selection")
 
 

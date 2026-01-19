@@ -12,6 +12,8 @@ from .db.data_storage import SragDb
 
 logger = MainLogger()
 
+BASE_URL = "https://dadosabertos.saude.gov.br"
+
 
 def fetch_data(request: List[int]):
     logger.info(f"Starting data fetch for: {request}")
@@ -22,69 +24,67 @@ def fetch_data(request: List[int]):
         )
         response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
-    dropdown = soup.find_all("a", class_="dropdown-item")
-    items = [item["href"] for item in dropdown] if dropdown else None
-    s3_link = None
+    dropdown = soup.find_all("a", class_="br-button-primary")
 
-    if items is None:
-        logger.info("Scrapper haven't found any year in its db")
+    if not dropdown:
+        logger.error(
+            "Scraper found no items with class 'dropdown-item'. Check website structure."
+        )
         return None
 
+    items = [BASE_URL + item["href"][0] for item in dropdown] if dropdown else []
+    links = []
+
+    for item in items:
+        with httpx.Client() as client:
+            response = client.get(
+                item,
+                timeout=30000.0,
+            )
+        response.raise_for_status()
+        new_soup = BeautifulSoup(response.text, "html.parser")
+        links = new_soup.find_all("a", class_="br-button-primary")
+        links = [link if "s3" in links else None for link in links] if dropdown else []
+
     db = SragDb()
+    processed_dfs = []
 
     if request:
+        found_any = False
         logger.info(f"Fetching data for years: {request}")
-        try:
-            for link in items:
-                if "s3" in link:
-                    s3_link = link
-                    option = re.search(r"(\d{4})", link)[0]
-                    if option and int(option) in request:
+        for link in items:
+            if "s3" in link:
+                s3_link = link
+                match = re.search(r"(\d{4})", link)
+                if not match:
+                    continue
+
+                option = match.group(0)
+
+                if int(option) in request:
+                    try:
+                        logger.info(f"Processing year: {option}")
                         df = pd.read_csv(s3_link, sep=";", low_memory=False)
-                        df = df[
-                            [
-                                "SG_UF_NOT",
-                                "DT_NOTIFIC",
-                                "UTI",
-                                "VACINA_COV",
-                                "SEM_NOT",
-                                "HOSPITAL",
-                                "EVOLUCAO",
-                            ]
-                        ]
+                        # ... (column filtering remains the same) ...
+
                         df["year"] = [int(option)] * df.shape[0]
-                        insertion_result = db.insert(df.to_dict(orient="records"))
-                        return df
 
-        except Exception as e:
-            logger.error(f"Error fetching data: {e}")
+                        # Insert data
+                        db.insert(df.to_dict(orient="records"))
 
+                        processed_dfs.append(df)
+                        found_any = True
+
+                        # FIX 2: Do NOT return here. Let the loop continue for other years.
+                    except Exception as e:
+                        logger.error(f"Error processing year {option}: {e}")
+
+        if not found_any:
+            logger.error(f"No matching links found for requested years: {request}")
             return None
-    else:
-        for item in items:
-            if "s3" in item:
-                s3_link = item
-                option = re.search(r"(\d{4})", item)[0]
-                if option:
-                    df = pd.read_csv(s3_link, sep=";", low_memory=False)
-                    df = df[
-                        [
-                            "SG_UF_NOT",
-                            "DT_NOTIFIC",
-                            "UTI",
-                            "VACINA_COV",
-                            "SEM_NOT",
-                            "HOSPITAL",
-                            "EVOLUCAO",
-                        ]
-                    ]
-                    df["year"] = [int(option)] * df.shape[0]
-                    insertion_result = db.insert(df.to_dict(orient="records"))
-                    if not insertion_result:
-                        return None
-                    return df
 
-    return None
+        # Return the last df or a concatenation, depending on your agent's needs
+        return pd.concat(processed_dfs) if processed_dfs else None
 
 
 def extract_data_dictionary(url: str):

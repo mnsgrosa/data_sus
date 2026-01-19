@@ -1,9 +1,7 @@
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import httpx
 import numpy as np
 import pandas as pd
-from bs4 import BeautifulSoup
 from langchain_core.tools import tool
 
 from src.utils.logger import MainLogger
@@ -30,20 +28,16 @@ def get_db():
     return SragDb()
 
 
-@tool(response_format=SummarizerResponse | None)
-def summarize_numerical_data(
-    summary_request: SummarizerRequest,
-) -> SummarizerResponse | None:
+@tool
+def summarize_numerical_data(years: List[int], columns: List[str]) -> dict | None:
     """
     Summarizes the data in the specified column of the DataFrame.
 
     ARGS:
-        SummarizerRequest[
-        columns: List[str]: A list of columns to summarize.
         years: List[int]: List of desired years of data to summarizem, if user doesnt specify pass [2019, 2020, 2021, 2022, 2023, 2024, 2025].
-        ]
+        columns: List[str]: A list of columns to summarize.
     RETURNS:
-        SummarizerResponse[year[str], Dict[column[str], int | float]] -> Dict with the informations about the categorical variables from the desired column and years
+        Dict[str, float] -> Dict with the informations about the categorical variables from the desired column and years
     """
     valid_years = [2021, 2022, 2023, 2024, 2025]
     valid_columns = [
@@ -57,45 +51,50 @@ def summarize_numerical_data(
         "DT_ENTUTI",
         "DT_SAIDUTI",
     ]
-    if not set(summary_request.years).issubset(valid_years):
+    if not set(years).issubset(valid_years):
         logger.error("At least one of requested years isn't available")
-        return None
-    if not set(summary_request).issubset(valid_columns):
+        return {
+            "error": "One or more requested years are unavailable. Valid years: 2021-2025."
+        }
+
+    if not set(columns).issubset(valid_columns):
         logger.error("At least one of requested columns doesn't exist")
-        return None
-
+        return {"error": f"Invalid columns requested. Valid options: {valid_columns}"}
     db = get_db()
-
-    logger.info(f"Starting data summary tool for: {summary_request}")
     returnable_data = {}
 
-    columns = [column.upper() for column in summary_request.columns]
+    columns = [column.upper() for column in columns]
 
-    for year in summary_request.years:
+    for year in years:
         year_data = db.get_data(year)
         if year_data is None:
-            year_data = fetch_data(year)
-        if year_data:
+            year_data = fetch_data([year])
+        if year_data is not None and not year_data.empty:
             year_data.fillna(-1, inplace=True)
             column_dict = {}
             for column in columns:
-                year_dict = {}
-                response = pd.Categorical(year_data[column], ordered=True)
-                year_dict["median"] = np.median(response.codes)
-                year_dict["freq"] = year_data[column].value_counts().to_numpy().tolist()
-                column_dict[column] = year_dict
+                if column in year_data.columns:
+                    year_dict = {}
+                    response = pd.Categorical(year_data[column], ordered=True)
+                    year_dict["median"] = int(np.median(response.codes))
+                    year_dict["freq"] = year_data[column].value_counts().to_dict()
+                    column_dict[column] = year_dict
             returnable_data[year] = column_dict
     if not returnable_data:
         logger.info("No data was retrieved")
         return None
     logger.info(f"Data retrieved from:{returnable_data.keys()}")
-    return SummarizerResponse(**returnable_data)
+    return returnable_data
 
 
-@tool(response_format=StatReportResponse | None)
+@tool
 def generate_statistical_report(
-    request: StatReportRequest,
-) -> StatReportResponse | None:
+    year: int,
+    starting_month: int,
+    ending_month: int,
+    state: Optional[str] = "all",
+    granularity: Optional[str] = "ME",
+) -> dict | None:
     """
     Generates a statistical report about the following topics:
             - Number of deaths and death rate
@@ -116,34 +115,63 @@ def generate_statistical_report(
             RETURNS:
                 A summary of the data of total cases from that year
     """
-    logger.info(f"Starting report generation for: {request}")
-    if request.year not in [2021, 2022, 2023, 2024, 2025]:
-        return None
+    if year not in [2021, 2022, 2023, 2024, 2025]:
+        return {"error": f"Year {year} is not available. Try 2021-2025."}
 
-    if request.granularity not in ["D", "ME", "SE", "M"]:
-        return None
+    if granularity not in ["D", "ME", "SE", "M"]:
+        return {"error": f"Invalid granularity '{granularity}'."}
 
     report = {}
 
-    db = get_db()
+    db = SragDb()
+    df = db.get_data(year)
 
-    data = db.get_data(request.year)
-    if data is None:
-        data = fetch_data(request.year)
+    if df is None or df.empty:
+        print(f"No data found for {year}. Triggering fetch...")  # or use logger
+
+        # Call the scraper we just fixed
+        # Note: fetch_data expects a list of ints
+        fetch_result = fetch_data([year])
+
+        if fetch_result is None:
+            return {
+                "error": f"Could not fetch data for year {year} from external source."
+            }
+
+        # 3. Retry getting data after fetch
+        df = db.get_data(year)
+        if df is None or df.empty:
+            return {
+                "error": "Fetched data but database is still returning empty. Check insertion logic."
+            }
+
+    data = db.get_data(year)
     if data is None or data.empty:
-        return None
+        return {"error": f"No data available in the database for year {year}."}
 
-    if request.state and request.state.lower() != "all":
-        data = data[data["SG_UF_NOT"] == request.state.upper()]
+    if state and state.lower() != "all":
+        data = data[data["SG_UF_NOT"] == state.upper()]
+        if data.empty:
+            return {"error": f"No data found for state {state} in {year}."}
+
+    if state and state.lower() != "all":
+        data = data[data["SG_UF_NOT"] == state.upper()]
+
+    df_state = df[df["SG_UF_NOT"] == state]
+
+    if df_state.empty:
+        return {
+            "error": f"Data available for {year}, but no records found for state {state}."
+        }
 
     try:
-        year_int = int(request.year)
+        year_int = int(year)
 
         data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"])
         mask = (
             (data["DT_NOTIFIC"].dt.year == year_int)
-            & (data["DT_NOTIFIC"].dt.month >= request.starting_month)
-            & (data["DT_NOTIFIC"].dt.month <= request.ending_month)
+            & (data["DT_NOTIFIC"].dt.month >= starting_month)
+            & (data["DT_NOTIFIC"].dt.month <= ending_month)
         )
 
         filtered_data = data[mask]
@@ -181,82 +209,75 @@ def generate_statistical_report(
 
         logger.info(f"{perc_uti}")
 
-        return StatReportResponse(**report)
+        return report
     except Exception as e:
         logger.error(f"Error converting data: {e}")
         return None
 
 
-@tool(response_format=GraphReportResponse | None)
-def generate_temporal_graphical_report(
-    request: GraphReportRequest,
-) -> GraphReportResponse | None:
+@tool
+def generate_graphical_report(
+    year: Optional[int], granularity: Optional[str] = "ME", state: Optional[str] = None
+) -> dict | None:
     """
-    Generates a graphical report about the influenza cases in the selected state if not provided state defaults to None,
+    Generates a graphical report about the covid cases at selected state if not provided state defaults to None,
 
-    ARGS:
-        GraphReportRequest[
+    ARGS:-
         state: str: Brazillian state options with the two first carachters like: 'PE', 'CE', 'SP'
         granularity: str: The granularity of the report. Valid values are 'D' (daily), 'W' (weekly), 'ME' (monthly), 'Q' (quarterly), 'A' (annual). Defaults to 'D'
         year: year that the user prompted, if not provided default to 2025
-        ]
+
     RETURNS:
         A dictionary with the figure_id, description from the plot and the data points
     """
-    if request.year not in [2021, 2022, 2023, 2024, 2025]:
+    if year not in [2021, 2022, 2023, 2024, 2025]:
         return None
 
-    if request.granularity not in ["D", "ME", "SE", "M"]:
+    if granularity not in ["D", "ME", "SE", "M"]:
         return None
     db = get_db()
 
-    data = db.get_data(request.year)
+    data = db.get_data(year)
     if data is None:
-        data = fetch_data(request.year)
+        data = fetch_data([year])
 
     if data is None or data.empty:
         return None
 
     try:
         logger.info("Grouping the data")
-        grouped = (
-            data.fillna(0).groupby(by=["DT_NOTIFIC", "SG_UF_NOT"]).count().reset_index()
-        )
-        grouped["DT_NOTIFIC"] = pd.to_datetime(grouped["DT_NOTIFIC"])
-        if request.state:
-            grouped = (
-                grouped[grouped["SG_UF_NOT"] == request.state]
-                .set_index("DT_NOTIFIC")
-                .resample(request.granularity)
-                .count()
-                .reset_index()
-            )
-        else:
-            grouped = (
-                grouped.set_index("DT_NOTIFIC")
-                .resample(request.granularity)
-                .count()
-                .reset_index()
-            )
-    except Exception as e:
-        logger.error(f"Error grouping data: {e}")
-        return None
+        # Ensure date column is datetime
+        data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"])
 
-    try:
-        logger.info("Creating the graph")
+        # Filter first if state is provided (optimization)
+        if state and state.lower() != "all":
+            data = data[data["SG_UF_NOT"] == state.upper()]
+            if data.empty:
+                return {"error": f"No data to plot for state {state}."}
+
+        # Use a simpler groupby/resample logic
+        # Note: 'year' column usually doesn't exist in raw data unless added,
+        # normally we count rows (size)
+        grouped = (
+            data.set_index("DT_NOTIFIC")
+            .resample(granularity)
+            .size()  # Count occurrences
+            .reset_index(name="count")
+        )
+
+        logger.info("Creating the graph payload")
 
         x = grouped["DT_NOTIFIC"].dt.strftime("%Y-%m-%d").tolist()
-        y = grouped["year"].tolist()
+        y = grouped["count"].tolist()
 
-        return GraphReportResponse(
-            **{
-                "x": x,
-                "y": y,
-                "total_points": len(x),
-                "state": request.state or "all",
-                "granularity": request.granularity,
-            }
-        )
+        return {
+            "x": x,
+            "y": y,
+            "total_points": len(x),
+            "state": state or "all",
+            "granularity": granularity,
+            "figure_id": f"cases_{state or 'all'}_{year}",  # Added ID for agent processing
+        }
     except Exception as e:
         logger.error(f"Error while creating the graph: {e}")
-        return None
+        return {"error": f"Failed to generate graph: {str(e)}"}
