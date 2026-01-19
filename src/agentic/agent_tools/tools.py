@@ -8,20 +8,8 @@ from src.utils.logger import MainLogger
 
 from .tools_utils.db.data_storage import SragDb
 from .tools_utils.tools_helper import fetch_data
-from .tools_utils.tools_schema import (
-    GraphReportRequest,
-    GraphReportResponse,
-    StatReportRequest,
-    StatReportResponse,
-    SummarizerRequest,
-    SummarizerResponse,
-)
 
 logger = MainLogger(__name__)
-BASE_URL = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024"
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
-}
 
 
 def get_db():
@@ -131,7 +119,6 @@ def generate_statistical_report(
     if starting_month > ending_month:
         return {"error": "starting_month cannot be greater than ending_month."}
 
-    # Get or fetch data (single retrieval)
     db = get_db()
     data = db.get_data(year)
 
@@ -160,10 +147,8 @@ def generate_statistical_report(
             return {"error": f"No data found for state {state} in {year}."}
 
     try:
-        # Convert and filter by date range
         data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"], errors="coerce")
 
-        # Remove rows with invalid dates
         data = data.dropna(subset=["DT_NOTIFIC"])
 
         mask = (
@@ -182,7 +167,6 @@ def generate_statistical_report(
 
         logger.info(f"Filtered data shape: {filtered_data.shape}")
 
-        # Calculate metrics
         total_count = len(filtered_data)
         death_count = int((filtered_data["EVOLUCAO"] == 2).sum())
         death_rate = (death_count / total_count * 100) if total_count > 0 else 0.0
@@ -251,22 +235,17 @@ def generate_graphical_report(
 
     try:
         logger.info("Grouping the data")
-        # Ensure date column is datetime
         data["DT_NOTIFIC"] = pd.to_datetime(data["DT_NOTIFIC"])
 
-        # Filter first if state is provided (optimization)
         if state and state.lower() != "all":
             data = data[data["SG_UF_NOT"] == state.upper()]
             if data.empty:
                 return {"error": f"No data to plot for state {state}."}
 
-        # Use a simpler groupby/resample logic
-        # Note: 'year' column usually doesn't exist in raw data unless added,
-        # normally we count rows (size)
         grouped = (
             data.set_index("DT_NOTIFIC")
             .resample(granularity)
-            .size()  # Count occurrences
+            .size()
             .reset_index(name="count")
         )
 
@@ -281,7 +260,7 @@ def generate_graphical_report(
             "total_points": len(x),
             "state": state or "all",
             "granularity": granularity,
-            "figure_id": f"cases_{state or 'all'}_{year}",  # Added ID for agent processing
+            "figure_id": f"cases_{state or 'all'}_{year}",
         }
     except Exception as e:
         logger.error(f"Error while creating the graph: {e}")

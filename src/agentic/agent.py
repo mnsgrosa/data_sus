@@ -66,12 +66,11 @@ class StatisticalAgent(MainLogger):
     def _serialize_for_json(self, obj: Any) -> Any:
         try:
             encoder = JsonEncoder(data=obj)
-            # Use by_alias=True just in case, though not strictly required here
             dump = encoder.model_dump()
-            return dump.get("data", obj)  # Fallback to obj if key is missing
+            return dump.get("data", obj)
         except Exception as e:
             self.logger.error(f"Serialization failed: {e}")
-            return str(obj)  # Fallback to string representation
+            return str(obj)
 
     def call_tools(self, state: ReportInfo) -> Dict[str, List]:
         """Custom tool execution that preserves dict returns"""
@@ -85,9 +84,7 @@ class StatisticalAgent(MainLogger):
             tool_args = tool_call["args"]
             tool_id = tool_call["id"]
 
-            # Type coercion for common issues
-            if tool_name == "generate_statistical_report":
-                # Convert month integers to strings
+            if tool_name == "generate_statistical_report"
                 if "starting_month" in tool_args:
                     tool_args["starting_month"] = str(tool_args["starting_month"])
                     self.logger.info(
@@ -127,14 +124,12 @@ class StatisticalAgent(MainLogger):
                     else:
                         result = {"result": result}
 
-                # Serialize the result for JSON compatibility
                 serialized_result = self._serialize_for_json(result)
 
                 self.logger.info(
                     f"Tool {tool_name} serialized result keys: {serialized_result.keys()}"
                 )
 
-                # Create ToolMessage with dict content
                 tool_message = ToolMessage(
                     content=json.dumps(serialized_result),
                     tool_call_id=tool_id,
@@ -223,11 +218,7 @@ class StatisticalAgent(MainLogger):
             sys_msg = SystemMessage(content=textual_description_of_tool)
             messages = [sys_msg] + messages
 
-        self.info(f"THE MESSAGE PASSED TO AGENT IS:{messages}")
-
         response = self.llm_tool_caller.invoke(messages)
-
-        self.info(f"RESPONSE:{response}")
 
         return {"messages": messages + [response]}
 
@@ -249,22 +240,15 @@ class StatisticalAgent(MainLogger):
                 if isinstance(result, str):
                     try:
                         result = json.loads(result)
-                        self.logger.info(
-                            f"Parsed tool result with keys: {result.keys() if isinstance(result, dict) else 'not a dict'}"
-                        )
                     except json.JSONDecodeError as e:
-                        self.logger.warning(
-                            f"Failed to parse tool result as JSON: {str(result)[:100]}... Error: {e}"
-                        )
                         continue
 
                 if isinstance(result, dict):
                     self.info("THIS IS A DICT!!!")
-                    if "data" in result and result["data"]:
-                        data.update(result["data"])
-                        self.info(
-                            f"Added data with keys: {list(result['data'].keys())}"
-                        )
+                    years = ["2021", "2022", "2023", "2024", "2025"]
+                    if set(result.keys()).issubset(years) and result:
+                        data.update(result)
+                        self.info(f"Added data with keys: {result}")
 
                     if "total_cases" in result and result["total_cases"]:
                         self.info("Report detected")
@@ -280,11 +264,9 @@ class StatisticalAgent(MainLogger):
                         k in result for k in ["mean", "median", "std", "min", "max"]
                     ):
                         summary.append(result)
-                        self.logger.info(f"Added summary stats: {list(result.keys())}")
 
                     if any(k.startswith("_") for k in result.keys()):
                         struct = result
-                        self.logger.info(f"Added struct with {len(result)} keys")
 
         return {
             "figures": figures,
@@ -311,6 +293,5 @@ class StatisticalAgent(MainLogger):
 
         initial_state["messages"].append(HumanMessage(content=user_message))
 
-        # Invoke graph
         result = self.react_graph.invoke(initial_state)
         return result
