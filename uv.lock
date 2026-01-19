@@ -375,6 +375,12 @@ wheels = [
 ]
 
 [[package]]
+name = "chroma"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/f0/e747fa78cd8ff7d23a598ab21b79988b759c2248500e0d31f21620cb75f3/Chroma-0.2.0.tar.gz", hash = "sha256:e265bcd503e2b35c4448b83257467166c252ecf3ab610492432780691cdfb286", size = 5790, upload-time = "2013-02-01T20:43:22.781Z" }
+
+[[package]]
 name = "click"
 version = "8.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1082,17 +1088,16 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "chroma" },
     { name = "db-sqlite3" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "kaleido" },
     { name = "langchain" },
     { name = "langchain-google-genai" },
-    { name = "langchain-ollama" },
     { name = "langgraph" },
     { name = "matplotlib" },
     { name = "nbformat" },
-    { name = "ollama" },
     { name = "pandas" },
     { name = "pdfplumber" },
     { name = "plotly" },
@@ -1105,17 +1110,16 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.14.2" },
+    { name = "chroma", specifier = ">=0.2.0" },
     { name = "db-sqlite3", specifier = ">=0.0.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.118.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kaleido", specifier = ">=1.1.0" },
     { name = "langchain", specifier = ">=0.3.27" },
     { name = "langchain-google-genai", specifier = ">=2.1.12" },
-    { name = "langchain-ollama", specifier = ">=0.3.9" },
     { name = "langgraph", specifier = ">=0.6.8" },
     { name = "matplotlib", specifier = ">=3.10.6" },
     { name = "nbformat", specifier = ">=5.10.4" },
-    { name = "ollama", specifier = ">=0.6.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pdfplumber", specifier = ">=0.11.7" },
     { name = "plotly", specifier = ">=6.3.1" },
@@ -1372,19 +1376,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/09/38/8b3a71c729bd03e9eb0fd8bdb19e06a074c35bc2eaa61b1b9edfa863f38d/langchain_google_genai-2.1.12.tar.gz", hash = "sha256:4a98371e545eb97fcdf483086a4aebbb8eceeb9597ca5a9c4c35e92f4fbbd271", size = 77566, upload-time = "2025-09-17T01:27:11.747Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/8d/9dd9653e5414e73cae3480e5947bbbbd94ba7fa824efdf46e7ff2c0faef2/langchain_google_genai-2.1.12-py3-none-any.whl", hash = "sha256:4c07630419a8fbe7a2ec512c6dea68289663bfe7d5fae0ba431d2cd59a0d0880", size = 50746, upload-time = "2025-09-17T01:27:10.653Z" },
-]
-
-[[package]]
-name = "langchain-ollama"
-version = "0.3.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "ollama" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/08/11/684cd525d01ca7337bab115ac31af7a1814bdae45ad80fa44792eaaafad0/langchain_ollama-0.3.9.tar.gz", hash = "sha256:6ed5210b15d0261fdb3354f80b451a0c93d18788b2aed9af9f5bdc8d4e7947a9", size = 35252, upload-time = "2025-10-02T02:33:56.859Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/4f/5a11d9cb2529efb2f7923a294320697a47f21f1f62e3fee1dc7f9f802c19/langchain_ollama-0.3.9-py3-none-any.whl", hash = "sha256:40ee57c86325bb962d483b1f1fa602371e2d00c89a85a69ed685b5e999a88367", size = 27557, upload-time = "2025-10-02T02:33:55.835Z" },
 ]
 
 [[package]]

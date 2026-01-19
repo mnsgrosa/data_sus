@@ -73,8 +73,7 @@ class StatisticalAgent(MainLogger):
             return str(obj)
 
     def call_tools(self, state: ReportInfo) -> Dict[str, List]:
-        """Custom tool execution that preserves dict returns"""
-        messages = state["messages"]
+        messages = state["messages_dict"]
         last_message = messages[-1]
 
         tool_messages = []
@@ -108,7 +107,11 @@ class StatisticalAgent(MainLogger):
             self.logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
 
             try:
+                if tool_name not in self.tool_map:
+                    raise ValueError(f"Unknown tool: {tool_name}")
+
                 tool = self.tool_map[tool_name]
+
                 result = tool.invoke(tool_args)
 
                 # Ensure result is a dict
@@ -131,7 +134,7 @@ class StatisticalAgent(MainLogger):
                 )
 
                 tool_message = ToolMessage(
-                    content=json.dumps(serialized_result),
+                    content=json.dumps(serialized_result, ensure_ascii=False),
                     tool_call_id=tool_id,
                     name=tool_name,
                 )
@@ -152,7 +155,7 @@ class StatisticalAgent(MainLogger):
         return {"messages": messages + tool_messages}
 
     def should_continue(self, state: ReportInfo):
-        messages = state["messages"]
+        messages = state["messages_dict"]
         last_message = messages[-1]
 
         if hasattr(last_message, "tool_calls") and last_message.tool_calls:
@@ -223,8 +226,7 @@ class StatisticalAgent(MainLogger):
         return {"messages": messages + [response]}
 
     def process_tool_results(self, state: ReportInfo):
-        """Process tool results and extract figures, reports, etc."""
-        messages = state["messages"]
+        messages = state["messages_dict"]
         figures = state.get("figures", [])
         report = state.get("report", [])
         summary = state.get("summary", [])
