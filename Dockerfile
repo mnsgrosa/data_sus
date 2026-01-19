@@ -1,27 +1,27 @@
-FROM ghcr.io/astral-sh/uv:bookworm-slim AS builder
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-ENV UV_PYTHON_INSTALL_DIR=/python
-
-ENV UV_PYTHON_PREFERENCE=only-managed
-
-RUN uv python install 3.12
-
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev --no-editable
-COPY . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
-
-FROM gcr.io/distroless/cc
-
-COPY --from=builder --chown=python:python /python /python
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
 WORKDIR /app
 
-COPY --from=builder --chown=app:app /app/.venv /app/.venv
+RUN addgroup --system nonroot && \
+    adduser --system --ingroup nonroot --home /home/nonroot nonroot && \
+    mkdir -p /home/nonroot/.cache && \
+    chown -R nonroot:nonroot /app /home/nonroot
+
+COPY --chown=nonroot:nonroot uv.lock pyproject.toml README.md /app/
+
+COPY --chown=nonroot:nonroot src /app/src
+
+USER nonroot
+
+RUN uv sync --no-cache
+
+COPY --chown=nonroot:nonroot . /app/
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
+
+ENTRYPOINT []
