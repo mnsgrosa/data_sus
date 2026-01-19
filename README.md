@@ -1,10 +1,24 @@
 # How to run this branch
 
-You need docker and docker compose installed, after that run the following command at the root directory
+You need docker and docker compose installed, after that run the following command at the root directory, and add your google api key from google ai studio [google-ai](https://aistudio.google.com/api-keys)
+place at .env with the .env.setup structure and then run
 
 ```
-docker compose up .
+make
 ```
+
+it will build and run if you want it to run again only run
+
+```
+make run
+```
+
+and stop
+
+```
+make stop
+```
+
 the dashboard will run on [streamlit](http://localhost:8501) and the backand at [fastapi](http://localhost:8000)
 
 # DataSus conversational agent
@@ -27,15 +41,24 @@ branches it adds up the complexity.
 I would implement a fourth one where the prompt was sent to an api but due to computational restraints
 i let go of doing this one.
 
-the dashboard will run at [http://localhost:8501][localhost]
+the dashboard will run at [localhost](http://localhost:8501)
 
 ## How its tools work
 
-1) The first tool is the one used for downloading the csv from the year specified from datasus website
-2) The second tool fetches the data dictionary also from the datasus website but it consumes too much vram because of docling
-3) Summarize data, this tool gets a column that the user asked and describes the output
-4) Statistical report generator, it gets the statistics present at the relatory such as death rate, UTI occupation rate
-5) A graph generator, it generates graph about the year you ask from the database and with the granularity you wish
+1) The first tool is a tool that summarizes frequency and median of possible values from the data extraction based on prompted columns
+2) The second tool makes a statistical report from a year time window, january to december from 2022 for example. and also the state you desire
+3) The third tool gets data points so it can create a chart at streamlit
+
+## Example of conversations
+
+Usage of the summarization tool
+![summarization](./summarization_report.png)
+
+Usage of statistical report tool
+![statistical_report](./statistical_report.png)
+
+Usage of chart report
+![graphical_report](./graphical_report.png)
 
 ## Decisions about the data
 
@@ -80,26 +103,12 @@ I've chosen a simple one for the time that i had available
 This react agent has only one interpreter that will tell the agent the tool to call, it will get the
 prompt via streamlit and if returned a graph it will plot the graph + the message, the agent always
 
-## Architecture from other branches
-
-This one i've made a small change but i wish i could invert how i did i would send the prompt via api
-for the fourth branch because it will protect our data with guardrails and wont let users jailbreak it.
-This branch i have the vision to show that i know how to create apis protecting the company ip
-
-![api structure](./api_archtecture.png)
-
-I've made the decision to let the dictionary reader run locally for one reason. It depends on gpus,
-so based on this fact the api host isnt designed for such operation so it will be better to keep local.
-the third branch actually has a small difference because it runs on docker, running on docker it lets us
-scale and run on kubernetes later on and being on docker lets us run on a aws/gcp/azure service like ecs,
-lambda, etc...
-
 ## Code decisions
 
 ### Logger:
 
 i've implemented a logger that gets inherited by all other classes so it gets easier to log what is
-happening throughout the code.
+happening throughout the code. Called a facade pattern
 
 ### File structures:
 

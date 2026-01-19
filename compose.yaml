@@ -1,5 +1,5 @@
 services:
-  api:
+  backend:
     build: .
     container_name: data_sus_api
     command: python -m src.api.fast
@@ -26,18 +26,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     depends_on:
-      - api
+      - backend
     networks:
       - data_sus_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
 networks:
   data_sus_network:

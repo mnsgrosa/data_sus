@@ -1,27 +1,28 @@
 from datetime import date, datetime
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 import numpy as np
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 
 class ReportInfo(TypedDict):
-    messages_dict: List[HumanMessage | AIMessage]
+    messages: List[HumanMessage | AIMessage]
     report: List[Dict[str, Any]]
     struct: Dict[str, Any]
     summary: List[Dict[str, Any]]
     stat_report: List[Dict[str, Any]]
     figures: List[Any]
+    data: Dict[str, Any]
 
 
 class JsonEncoder(BaseModel):
     data: Any
 
-    @model_serializer(mode="wrap")
-    def _serialize(self, serializer, info):
-        return self._process(self.data)
+    @field_serializer("data")
+    def _serialize(self, value, _info):
+        return self._process(value)
 
     def _process(self, obj: Any) -> Any:
         if hasattr(obj, "_data_class_name") or (
@@ -31,7 +32,7 @@ class JsonEncoder(BaseModel):
 
         if isinstance(obj, (np.integer, np.int_)):
             return int(obj)
-        if isinstance(obj, (np.floating, np.float_)):
+        if isinstance(obj, (np.floating, np.float64)):
             return float(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -55,3 +56,14 @@ class JsonEncoder(BaseModel):
                 return str(obj)
 
         return obj
+
+
+class AgentResponse(BaseModel):
+    content: str = Field(..., description="LLM generated output about tool calling")
+    data: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Datapoints outputed by tools if any tool was called",
+    )
+    tool_name: Optional[str] = Field(
+        default="general_chat", description="Name of tool used"
+    )
