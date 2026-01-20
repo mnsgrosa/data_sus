@@ -1,7 +1,6 @@
 # How to run this branch
 
-You need docker and docker compose installed, after that run the following command at the root directory, and add your google api key from google ai studio [google-ai](https://aistudio.google.com/api-keys)
-place at .env with the .env.setup structure and then run
+You need docker and docker compose installed, add your google api key from google ai studio [google-ai](https://aistudio.google.com/api-keys) in a .env file with the .env.setup structure at root dir then run the following command at the root directory.
 
 ```
 make
@@ -81,18 +80,13 @@ The agent answers and with a tool that calculates the following:
 
 ## The agent
 
-The agent here has in total 5 tools
+The agent here has in total 3 tools
 
-- store_csvs -> This tool focuses on fetching the csv from the datasus website and store at the db
-- get_data_dict -> Gets the data dictionary from the website 
 - summarize_numerical_data -> Summarize the categorical data from the csv collumns 
 - generate_statistical_report -> Creates a dataframe with informations about selected period of time 
 - generate_temporal_graphical_report -> Creates a graph about the count of infections
 
-I've opted to use a SLM to check its boundaries im using qwen2.5:14b, 
-i've checked out and SLMs fine tuned for these tasks
-are optimal for following structure, if i had more time i would implement a LLM to monitor the SLMs
-to have a orchestrator of agents (multi agent system). 
+This time i opted in using gemini-2.5-pro so it doesn't take much of my computer and use the gemini servers
 
 ## Architecture (Main Branch)
 
@@ -108,7 +102,8 @@ prompt via streamlit and if returned a graph it will plot the graph + the messag
 ### Logger:
 
 i've implemented a logger that gets inherited by all other classes so it gets easier to log what is
-happening throughout the code. Called a facade pattern
+happening throughout the code. Called a facade pattern. This pattern is known as facade for a more complex
+system without giving too much control but it can end up having a god item
 
 ### File structures:
 
@@ -135,4 +130,5 @@ business logic so that the code doesnt keep breaking with bugs from halucination
 ## Why didn't i use Vectorial database?
 
 It seems a bit obvious that it should use, but the scope here is much smaller, since tabular data
-answers really well our task it seemed a bit of overengineering to use it
+answers really well our task it seemed a bit of overengineering to use it, i could`ve made it to
+retrieve past answers and use less tokens but due the short amount of time i have opted to not use it
