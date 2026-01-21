@@ -25,7 +25,6 @@ the dashboard will run on [streamlit](http://localhost:8501) and the backand at 
 ## Disclaimer
 
 1) The architectures shown in this readme are also uploaded as pdfs within the root of the repository the files are 'main_archtecture.pdf' and 'api_archtecture.pdf'
-2) This project doesnt need a .env because it runs locally since i will be running to prsent it
 
 ---
 
